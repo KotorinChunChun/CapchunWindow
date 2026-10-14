@@ -17,14 +17,18 @@ internal static class Program
     {
         try
         {
+            var output = Argument(args, "--output") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../dev/history/v0.1.0/logs", $"logic-{DateTime.Now:yyyyMMdd-HHmmss}"));
+            Directory.CreateDirectory(output);
             InputTests.Run(Check);
+            StorageTests.Run(Check, output);
+            var initialContext = SynchronizationContext.Current;
+            try { UiTests.Run(Check, output); }
+            finally { SynchronizationContext.SetSynchronizationContext(initialContext); }
             var mapped = RecordingSession.MapInputToOutput(new InputSample(20, 30, "L-Click", "Ctrl,C"), new Size(100, 100), new Size(100, 100), new Size(200, 100));
             Check(mapped.X == 70 && mapped.Y == 30, "リサイズ時のTSV座標を余白と縮尺へ合わせる");
             var ffmpeg = Argument(args, "--ffmpeg");
             if (ffmpeg is not null)
             {
-                var output = Argument(args, "--output") ?? throw new ArgumentException("--outputが必要です。");
-                Directory.CreateDirectory(output);
                 MediaTests(ffmpeg, Argument(args, "--ffprobe"), output).GetAwaiter().GetResult();
             }
         }

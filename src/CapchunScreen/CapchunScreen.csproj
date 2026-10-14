@@ -13,7 +13,9 @@
     <FileVersion>0.1.0.0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets/CapchunScreen.ico</ApplicationIcon>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><InternalsVisibleTo Include="CapchunScreen.Tests" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="assets/CapchunScreen.ico" LogicalName="CapchunScreen.AppIcon.ico" /></ItemGroup>
 </Project>

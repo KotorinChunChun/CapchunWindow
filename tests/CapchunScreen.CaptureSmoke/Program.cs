@@ -10,11 +10,17 @@ internal static class Program
     {
         if (args.Length != 1)
         {
-            Console.Error.WriteLine("使用方法: CapchunScreen.CaptureSmoke.exe <証跡フォルダー>");
+            Console.Error.WriteLine("使用方法: CapchunScreen.CaptureSmoke.exe <証跡フォルダー> または --scene");
             return 2;
         }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
+        if (args[0] == "--scene")
+        {
+            using var scene = new SceneForm();
+            Application.Run(scene);
+            return 0;
+        }
         var directory = Path.GetFullPath(args[0]);
         Directory.CreateDirectory(directory);
         int exitCode = 1;

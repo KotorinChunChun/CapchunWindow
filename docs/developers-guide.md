@@ -25,6 +25,8 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 - Input: 録画時だけ有効なフック、入力蓄積、対象範囲判定。
 - Recording: エンコーダ、単調時計、固定寸法・TSV対応、保存確定。
 - Storage: 設定、録画一覧、改名・ごみ箱。
-- UI: 録画・設定・改名画面と所有資源。
+- Playback: FFmpegによる独立デコード、単調時計、シーク・終了処理。
+- VirtualCamera: UnityCaptureの登録検出と共有メモリ送信、最新フレームの配信ワーカー。
+- UI: 録画・設定・改名・独立プレビュー・複数再生画面と所有資源。
 
 初版のアイコンは親の採用04共通ICOをこのリポジトリへ複製し、親相対パスを実行時依存にしない。独立ウィンドウはBrandedFormとWindowTitle.Createを使用する。

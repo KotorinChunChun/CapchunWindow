@@ -82,7 +82,7 @@ public sealed class RecordingSession
 
                 void PublishPreview()
                 {
-                    if (preview is null || clock.Elapsed.TotalSeconds - previewTime < 0.1)
+                    if (preview is null || clock.Elapsed.TotalSeconds - previewTime < 0.05)
                         return;
                     previewTime = clock.Elapsed.TotalSeconds;
                     Bitmap copy = (Bitmap)canvas.Clone();

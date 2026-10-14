@@ -7,7 +7,7 @@ using CapchunScreen.Storage;
 
 namespace CapchunScreen.UI;
 
-internal sealed class MainForm : BrandedForm
+internal sealed partial class MainForm : BrandedForm
 {
     private readonly SettingsStore store;
     private AppSettings settings;
@@ -29,9 +29,9 @@ internal sealed class MainForm : BrandedForm
     private readonly Button refreshButton = Button("対象を更新");
     private readonly Button settingsButton = Button("設定");
     private readonly Label outputLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly ListView files = new() { View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, Dock = DockStyle.Fill, AccessibleName = "録画ファイル一覧" };
+    private readonly ListView files = new() { View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false, Dock = DockStyle.Fill, AccessibleName = "録画ファイル一覧" };
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
-    private readonly System.Windows.Forms.Timer frameTimer = new() { Interval = 100 };
+    private readonly System.Windows.Forms.Timer frameTimer = new() { Interval = 50 };
     private readonly Stopwatch recordingClock = new();
     private readonly List<Control> recordingOptions = [];
     private CancellationTokenSource? recordingCancellation;
@@ -63,7 +63,12 @@ internal sealed class MainForm : BrandedForm
         frameTimer.Tick += (_, _) =>
         {
             var frame = Interlocked.Exchange(ref pendingFrame, null);
-            if (frame is not null) { var old = picture.Image; picture.Image = frame; old?.Dispose(); }
+            if (frame is not null)
+            {
+                var old = picture.Image; picture.Image = frame; old?.Dispose();
+                DistributeFrame(frame);
+            }
+            UpdateCameraStatus();
             elapsed.Text = recordingClock.Elapsed.ToString(@"hh\:mm\:ss");
         };
         frameTimer.Start();
@@ -80,8 +85,8 @@ internal sealed class MainForm : BrandedForm
         var recording = new TabPage("録画") { Padding = new Padding(8) };
         var library = new TabPage("録画ファイル") { Padding = new Padding(8) };
         tabs.TabPages.AddRange([recording, library]);
-        var recordLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 6, ColumnCount = 1 };
-        foreach (int height in new[] { 40, 40, 35, 80, 32 }) recordLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        var recordLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 7, ColumnCount = 1 };
+        foreach (int height in new[] { 40, 40, 35, 80, 32, 42 }) recordLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         recordLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         recording.Controls.Add(recordLayout);
         var search = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
@@ -102,7 +107,8 @@ internal sealed class MainForm : BrandedForm
         AddOption(options, "開始まで(秒)", countdown); AddOption(options, "最長(秒・0=無制限)", maximum);
         recordLayout.Controls.Add(options, 0, 3);
         recordLayout.Controls.Add(recordInput, 0, 4);
-        recordLayout.Controls.Add(picture, 0, 5);
+        recordLayout.Controls.Add(BuildExtraActions(), 0, 5);
+        recordLayout.Controls.Add(picture, 0, 6);
         recordingOptions.AddRange([kind, filter, refreshButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton]);
 
         var libraryLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
@@ -121,6 +127,7 @@ internal sealed class MainForm : BrandedForm
         AddAction(libraryButtons, "ごみ箱へ", RecycleSelected);
         AddAction(libraryButtons, "フォルダー", OpenFolder);
         AddAction(libraryButtons, "更新", RefreshFiles);
+        AddAction(libraryButtons, "複数再生…", OpenMultiPlayback);
         libraryLayout.Controls.Add(libraryButtons, 0, 2);
         recordingOptions.Add(libraryButtons);
 
@@ -211,7 +218,7 @@ internal sealed class MainForm : BrandedForm
                 cancellation.Token.ThrowIfCancellationRequested();
                 using var frame = source.Capture(cancellation.Token);
                 PublishFrame((Bitmap)frame.Image.Clone());
-                await Task.Delay(100, cancellation.Token).ConfigureAwait(false);
+                await Task.Delay(50, cancellation.Token).ConfigureAwait(false);
             }
         });
         _ = ObservePreviewAsync(previewTask, cancellation);
@@ -227,7 +234,11 @@ internal sealed class MainForm : BrandedForm
             if (previewCancellation == cancellation)
             {
                 previewCancellation = null; previewTask = null;
-                if (!IsDisposed) previewButton.Text = "プレビュー開始";
+                if (!IsDisposed)
+                {
+                    previewButton.Text = "プレビュー開始";
+                    if (!busy) ClearPreviewFrames();
+                }
             }
             cancellation.Dispose();
         }
@@ -241,7 +252,11 @@ internal sealed class MainForm : BrandedForm
         {
             try { await task; } catch (Exception) { /* 観測側が失敗理由を表示する。 */ }
         }
-        if (!IsDisposed) previewButton.Text = "プレビュー開始";
+        if (!IsDisposed)
+        {
+            previewButton.Text = "プレビュー開始";
+            if (previewTask is null || ReferenceEquals(previewTask, task)) ClearPreviewFrames();
+        }
     }
 
     private void PublishFrame(Bitmap frame)
@@ -292,7 +307,8 @@ internal sealed class MainForm : BrandedForm
         finally
         {
             recordingClock.Stop(); recordingCancellation = null; SetBusy(false); recordButton.Text = "● 録画開始";
-            if (closeAfterRecording) { allowClose = true; Close(); }
+            ClearPreviewFrames();
+            if (closeAfterRecording) Close();
         }
     }
 
@@ -358,8 +374,15 @@ internal sealed class MainForm : BrandedForm
         closing = true;
         SetBusy(true); recordButton.Enabled = false;
         await StopPreviewAsync();
+        await CloseExtrasAsync();
         try { store.Save(ReadValues()); allowClose = true; Close(); }
-        catch (Exception error) { closing = false; SetBusy(false); ShowError(error); }
+        catch (Exception error)
+        {
+            closing = false; SetBusy(false);
+            independent.Enabled = true; cameraButton.Enabled = !cameraChanging;
+            cameraButton.Text = "仮想カメラ開始"; cameraStatus.Text = "配信停止";
+            ShowError(error);
+        }
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -387,6 +410,7 @@ internal sealed class MainForm : BrandedForm
         if (disposing)
         {
             frameTimer.Stop(); frameTimer.Dispose();
+            DisposeExtras();
             Interlocked.Exchange(ref pendingFrame, null)?.Dispose();
             picture.Image?.Dispose();
         }

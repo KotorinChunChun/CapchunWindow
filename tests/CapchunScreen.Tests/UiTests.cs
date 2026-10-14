@@ -37,8 +37,8 @@ public static class UiTests
                 PerformLayoutTree(form);
                 string label = $"{size.Width}×{size.Height}・{tabs.SelectedTab!.Text}";
                 string[] required = tab == 0
-                    ? ["対象の種類", "対象名検索", "録画対象", "対象を更新", "FPS", "画質", "保存形式", "開始までの秒数", "最長録画秒数", "録画対象プレビュー", "選択ウィンドウのみ（WGC）", "操作履歴をTSVへ保存"]
-                    : ["録画ファイル一覧", "再生", "TSVを開く", "名前変更", "ごみ箱へ", "フォルダー", "更新"];
+                    ? ["対象の種類", "対象名検索", "録画対象", "対象を更新", "FPS", "画質", "保存形式", "開始までの秒数", "最長録画秒数", "録画対象プレビュー", "選択ウィンドウのみ（WGC）", "操作履歴をTSVへ保存", "独立プレビュー", "仮想カメラ開始", "仮想カメラ状態"]
+                    : ["録画ファイル一覧", "再生", "複数再生…", "TSVを開く", "名前変更", "ごみ箱へ", "フォルダー", "更新"];
                 string[] common = ["● 録画開始", "プレビュー開始", "設定", "録画状態"];
                 var controls = Descendants(form).Where(IsOnSelectedPage).ToArray();
                 string[] missing = required.Concat(common).Where(name => !controls.Any(control => HasName(control, name))).ToArray();
@@ -73,6 +73,7 @@ public static class UiTests
         }
 
         CheckClosingRace(settings, new SettingsStore(Path.Combine(root, "closing-settings")), check);
+        CheckClosingSaveFailure(settings, new SettingsStore(Path.Combine(root, "locked-settings")), check);
         check(!Directory.Exists(settings.OutputDirectory), "UI構造検査と終了処理で録画先を作成・録画しない");
     }
 
@@ -204,6 +205,23 @@ public static class UiTests
             finally { SynchronizationContext.SetSynchronizationContext(previous); }
         }
         check(form.IsDisposed && File.Exists(store.FilePath), "停止待機の解放後は隔離した設定を保存しフォームを破棄する");
+    }
+
+    private static void CheckClosingSaveFailure(AppSettings settings, SettingsStore store, Action<bool, string> check)
+    {
+        store.Save(settings);
+        using var form = new MainForm(store, settings, null);
+        CreateHiddenHandle(form);
+        // この検査が作った設定だけをロックし、終了時の保存失敗を再現する。
+        using var lockedSettings = new FileStream(store.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var closing = new FormClosingEventArgs(CloseReason.UserClosing, false);
+        typeof(MainForm).GetMethod("ClosingAsync", PrivateInstance)!.Invoke(form, [form, closing]);
+        check(closing.Cancel && !form.IsDisposed && !Field<bool>(form, "closing") && !Field<bool>(form, "busy")
+            && Field<Label>(form, "status").Text.StartsWith("エラー:", StringComparison.Ordinal),
+            "終了時の設定保存失敗を通知し、画面と通常操作を復旧する");
+        check(Field<CheckBox>(form, "independent").Enabled && Field<Button>(form, "cameraButton").Enabled
+            && Field<Button>(form, "cameraButton").Text == "仮想カメラ開始",
+            "終了時の保存失敗後も独立プレビューと仮想カメラを再操作できる");
     }
 
     private static T Field<T>(MainForm form, string name) => (T)typeof(MainForm).GetField(name, PrivateInstance)!.GetValue(form)!;

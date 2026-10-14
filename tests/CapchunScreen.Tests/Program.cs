@@ -22,7 +22,7 @@ internal static class Program
             InputTests.Run(Check);
             StorageTests.Run(Check, output);
             var initialContext = SynchronizationContext.Current;
-            try { UiTests.Run(Check, output); }
+            try { UiTests.Run(Check, output); PreviewTests.Run(Check); PlaybackTests.Run(Check); }
             finally { SynchronizationContext.SetSynchronizationContext(initialContext); }
             var mapped = RecordingSession.MapInputToOutput(new InputSample(20, 30, "L-Click", "Ctrl,C"), new Size(100, 100), new Size(100, 100), new Size(200, 100));
             Check(mapped.X == 70 && mapped.Y == 30, "リサイズ時のTSV座標を余白と縮尺へ合わせる");
@@ -30,6 +30,7 @@ internal static class Program
             if (ffmpeg is not null)
             {
                 MediaTests(ffmpeg, Argument(args, "--ffprobe"), output).GetAwaiter().GetResult();
+                PlaybackTests.RunAsync(ffmpeg, output, Check).GetAwaiter().GetResult();
             }
         }
         catch (Exception ex) { failed++; Console.WriteLine($"FAIL 未処理例外: {ex}"); }

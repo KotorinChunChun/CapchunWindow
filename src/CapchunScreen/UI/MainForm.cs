@@ -420,7 +420,7 @@ internal sealed partial class MainForm : BrandedForm
     private void Guard(Action action) { try { action(); } catch (Exception error) { ShowError(error); } }
     private void AddAction(FlowLayoutPanel panel, string text, Action action)
     { var button = Button(text); button.Click += (_, _) => Guard(action); panel.Controls.Add(button); }
-    private static Button Button(string text) => new() { Text = text, AutoSize = true, Height = 34, Margin = new Padding(3, 4, 5, 4), AccessibleName = text };
+    private static Button Button(string text) => new() { Text = text, AutoSize = true, Height = 34, Margin = new Padding(3, 4, 5, 4) };
     private static ComboBox Choice(string name, params string[] values)
     { var choice = new ComboBox { AccessibleName = name, DropDownStyle = ComboBoxStyle.DropDownList, Width = 88 }; choice.Items.AddRange(values); return choice; }
     private static NumericUpDown Number(string name, int max) => new() { AccessibleName = name, Minimum = 0, Maximum = max, Width = 80 };

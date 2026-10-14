@@ -1,6 +1,6 @@
 # CapchunScreen
 
-モニターや選択ウィンドウを録画し、操作履歴を同名のTSVへ保存するWindows用ツールです。Python版ChulipVideo内のCapchunScreenから、録画に必要な機能をC#へ移植しました。
+モニターや選択ウィンドウを録画し、操作履歴を同名のTSVへ保存するWindows用ツールです。Python版ChulipVideo内のCapchunScreenから、録画・独立プレビュー・仮想カメラ・複数動画再生をC#へ移植しました。
 
 ## 起動
 

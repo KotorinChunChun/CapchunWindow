@@ -45,6 +45,10 @@ public static class UiTests
                 check(missing.Length == 0, $"{label}に必須操作がある{Details(missing)}");
                 CheckGeometry(form, label, check);
             }
+            var recordButton = Field<Button>(form, "recordButton");
+            recordButton.Text = "■ 録画停止";
+            check(recordButton.AccessibilityObject.Name == recordButton.Text,
+                $"{size.Width}×{size.Height}で読み上げ名が録画停止の表示に追従する");
             check(!form.Visible, $"{size.Width}×{size.Height}の構造検査で画面を表示しない");
         }
 

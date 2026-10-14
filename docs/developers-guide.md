@@ -8,7 +8,7 @@ pwsh -File dev/scripts/test.ps1
 pwsh -File dev/scripts/test.ps1 -FfmpegPath C:\path\ffmpeg.exe -FfprobePath C:\path\ffprobe.exe
 ```
 
-通常テストは入力・設定・ファイル操作の合成データを扱う。FFmpeg引数を渡すと合成映像を実際にMP4/MKVへ保存し、デコードとフレーム数を検査する。実行結果は`dev/history/v0.1.0/logs/tests-*/`に置く。
+通常テストは入力・設定・ファイル操作の合成データ、非表示画面の配置と再生状態を扱う。FFmpeg引数を渡すと合成映像を実際にMP4/MKVへ保存し、デコードとフレーム数、時刻で内容の変わる映像のシーク、16デコーダーの同時取得と終了を検査する。実行結果は`dev/history/v0.1.0/logs/tests-*/`に置く。Unity Captureの合成受信テストは[仮想カメラの開発時の確認](virtual-camera.md#開発時の確認)を参照する。
 
 ```powershell
 dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
@@ -18,6 +18,8 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 キャプチャスモークは自作の検証窓だけを取得し、WGCの他窓分離・サイズ変更・停止条件を検査する。対話デスクトップへのアクセスが必要。制限環境のAccessDeniedを製品の動作不良と同一視しない。
 
 同じhelperの`--scene`は閉じるまで動く録画試験用窓。実UI検証ではこれを対象に選ぶ。テスト用設定を分離して起動する場合は`start.ps1 -SettingsDirectory <対象版logs内の設定フォルダー> -FfmpegPath <絶対パス>`を使う。
+
+実施済みのテスト件数、録画したMP4とTSVの照合、実操作動画の台帳と未検証範囲は[この版の実装報告](../dev/history/v0.1.0/v0.1.0-imp.md)に記録する。操作風景の録画と、CapchunScreen自身が生成した動画は別の証跡として扱う。
 
 ## 構成
 

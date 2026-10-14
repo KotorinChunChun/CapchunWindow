@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "capchun-screen",
+  "name": "CapchunScreen",
+  "version": "0.1.0",
+  "summary": "モニターや選択ウィンドウを録画し、操作履歴をTSVへ保存する",
+  "category": "録画",
+  "executable": "artifacts/management/bin/CapchunScreen/debug/CapchunScreen.exe",
+  "installedExecutable": "CapchunScreen.exe",
+  "appId": "KotorinToys.CapchunScreen",
+  "manual": "docs/users-guide.md",
+  "readme": "README.md",
+  "shortcuts": "config/shortcuts.json",
+  "distributionStatus": "unpublished",
+  "supportedEnvironment": "windows11-x64",
+  "investigationStatus": "confirmed",
+  "capabilities": [
+    "status",
+    "show",
+    "stop",
+    "silent-start"
+  ],
+  "runtimes": [
+    {
+      "id": "dotnet-desktop",
+      "name": ".NET Desktop Runtime 10 (x64)",
+      "kind": "dotnet-desktop",
+      "major": 10,
+      "guide": "開発実行には.NET 10 SDK、フレームワーク依存EXEには.NET Desktop Runtime 10 x64が必要です。"
+    },
+    {
+      "id": "ffmpeg",
+      "name": "FFmpeg",
+      "kind": "external",
+      "optional": true,
+      "feature": "録画・動画再生",
+      "guide": "設定でlibx264対応FFmpeg実行ファイルを指定してください。本体のSSCapture専用FFmpeg導入とは別設定です。"
+    },
+    {
+      "id": "unity-capture",
+      "name": "Unity Capture",
+      "kind": "external",
+      "optional": true,
+      "feature": "仮想カメラ",
+      "guide": "仮想カメラ使用時のみ別途ドライバーが必要です。"
+    }
+  ]
+}

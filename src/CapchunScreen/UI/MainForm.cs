@@ -45,8 +45,12 @@ internal sealed partial class MainForm : BrandedForm
     private bool previewToggleBusy;
     private bool closing;
 
-    internal MainForm(SettingsStore store, AppSettings settings, string? warning)
+    private readonly bool passive;
+    internal string? ManagementStopBlockReason => busy || closing || previewToggleBusy ? "録画・プレビュー切替・終了処理中のため停止できません。" : null;
+
+    internal MainForm(SettingsStore store, AppSettings settings, string? warning, bool passive = false)
     {
+        this.passive = passive;
         this.store = store;
         this.settings = settings;
         Text = WindowTitle.Create();
@@ -388,6 +392,7 @@ internal sealed partial class MainForm : BrandedForm
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        if (passive) return; // 連携テストではグローバルホットキーを取得しない。
         hotkeyRegistered = RegisterHotKey(Handle, 1, 0x4000 | 0x2 | 0x4, (uint)Keys.F9);
         if (!hotkeyRegistered) status.Text = "Ctrl+Shift+F9は他のアプリで使用中です。画面の録画ボタンを使用してください。";
     }

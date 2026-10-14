@@ -9,7 +9,7 @@ internal static class Program
         using var singleInstance = new Mutex(true, @"Local\CapchunScreen", out var firstInstance);
         if (!firstInstance)
         {
-            MessageBox.Show("CapchunScreenは既に起動しています。開いている画面を使用してください。", UI.WindowTitle.Create(), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            KotorinToys.Integration.ManagementEndpoint.ShowExisting("capchun-screen");
             return;
         }
         try
@@ -18,7 +18,10 @@ internal static class Program
             var settings = store.Load(out var warning);
             var ffmpeg = Option(args, "--ffmpeg");
             if (!string.IsNullOrWhiteSpace(ffmpeg)) settings = settings with { FfmpegPath = Path.GetFullPath(ffmpeg) };
-            Application.Run(new UI.MainForm(store, settings, warning));
+            var window = new UI.MainForm(store, settings, warning, args.Contains("--passive"));
+            using var context = new KotorinToys.Integration.ManagedToolContext("capchun-screen", window,
+                args.Contains("--startup"), () => window.ManagementStopBlockReason);
+            Application.Run(context);
         }
         catch (Exception error)
         {

@@ -27,3 +27,7 @@ pwsh -File dev/scripts/start.ps1
 音声録音、動画編集、入力演出の再生時重畳は含みません。同時再生は元と同じ音声なしです。仮想カメラの利用には別途Unity Captureドライバーが必要です。旧Pythonの設定・録画は変更しません。本体からの起動登録・配布・外部公開は未実施です。
 
 [使い方](docs/users-guide.md) / [開発・検証](docs/developers-guide.md) / [抽出対応表](docs/migration.md) / [v0.1.0実装報告](dev/history/v0.1.0/v0.1.0-imp.md)
+
+## KotorinToys管理連携（2026-10-15追加）
+
+本体の一覧からの開発版起動・既存画面表示・状態確認・正常停止に対応しました。上記移植時点の未登録範囲を、この追加で更新します。配布・正式インストール・外部公開は未実施です。[管理連携と検証用起動](docs/kotorintoys-integration.md)を参照してください。

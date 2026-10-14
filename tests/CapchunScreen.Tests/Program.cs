@@ -19,6 +19,7 @@ internal static class Program
         {
             var output = Argument(args, "--output") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../dev/history/v0.1.0/logs", $"logic-{DateTime.Now:yyyyMMdd-HHmmss}"));
             Directory.CreateDirectory(output);
+            ManagementTests.Run(Path.Combine(output, "management-settings"));
             InputTests.Run(Check);
             StorageTests.Run(Check, output);
             var initialContext = SynchronizationContext.Current;

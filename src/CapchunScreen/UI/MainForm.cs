@@ -10,6 +10,7 @@ namespace CapchunScreen.UI;
 internal sealed partial class MainForm : BrandedForm
 {
     private readonly SettingsStore store;
+    private readonly Func<CaptureTarget, bool, IFrameSource> frameSourceFactory;
     private AppSettings settings;
     private readonly ComboBox kind = Choice("対象の種類", "ウィンドウ", "モニター");
     private readonly TextBox filter = new() { PlaceholderText = "ウィンドウ名を検索", Dock = DockStyle.Fill, AccessibleName = "対象名検索" };
@@ -22,7 +23,9 @@ internal sealed partial class MainForm : BrandedForm
     private readonly NumericUpDown maximum = Number("最長録画秒数", 36000);
     private readonly CheckBox recordInput = new() { Text = "操作履歴をTSVへ保存", AutoSize = true };
     private readonly PictureBox picture = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 32, 38), SizeMode = PictureBoxSizeMode.Zoom, AccessibleName = "録画対象プレビュー" };
-    private readonly Label status = new() { Text = "対象を選び、プレビューまたは録画を開始してください。", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "録画状態" };
+    private readonly Label status = new() { Text = "対象を選ぶとプレビューを表示します。", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "録画状態" };
+    private readonly Button savedFolderButton = Button("保存先を開く");
+    private string? lastSavedVideo;
     private readonly Label elapsed = new() { Text = "00:00:00", AutoSize = true, Margin = new Padding(12, 8, 12, 0) };
     private readonly Button recordButton = Button("● 録画開始");
     private readonly Button previewButton = Button("プレビュー開始");
@@ -44,13 +47,18 @@ internal sealed partial class MainForm : BrandedForm
     private bool hotkeyRegistered;
     private bool previewToggleBusy;
     private bool closing;
+    private bool previewReady;
+    private bool refreshingTargets;
+    private int previewRevision;
 
     private readonly bool passive;
     internal string? ManagementStopBlockReason => busy || closing || previewToggleBusy ? "録画・プレビュー切替・終了処理中のため停止できません。" : null;
 
-    internal MainForm(SettingsStore store, AppSettings settings, string? warning, bool passive = false)
+    internal MainForm(SettingsStore store, AppSettings settings, string? warning, bool passive = false,
+        Func<CaptureTarget, bool, IFrameSource>? frameSourceFactory = null)
     {
         this.passive = passive;
+        this.frameSourceFactory = frameSourceFactory ?? CaptureFactory.Create;
         this.store = store;
         this.settings = settings;
         Text = WindowTitle.Create();
@@ -140,7 +148,16 @@ internal sealed partial class MainForm : BrandedForm
         previewButton.Width = 150;
         actions.Controls.AddRange([recordButton, previewButton, settingsButton, elapsed]);
         root.Controls.Add(actions, 0, 1);
-        root.Controls.Add(status, 0, 2);
+        var statusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        statusRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130));
+        savedFolderButton.Dock = DockStyle.Fill;
+        savedFolderButton.AutoSize = false;
+        savedFolderButton.Enabled = false;
+        statusRow.Controls.Add(status, 0, 0);
+        statusRow.Controls.Add(savedFolderButton, 1, 0);
+        root.Controls.Add(statusRow, 0, 2);
     }
 
     private void LoadValues()
@@ -157,14 +174,17 @@ internal sealed partial class MainForm : BrandedForm
 
     private void WireEvents()
     {
-        kind.SelectedIndexChanged += async (_, _) => { await StopPreviewAsync(); exclusive.Enabled = kind.SelectedIndex == 0; RefreshTargets(); };
-        filter.TextChanged += async (_, _) => { await StopPreviewAsync(); RefreshTargets(); };
-        target.SelectedIndexChanged += async (_, _) => await StopPreviewAsync();
-        exclusive.CheckedChanged += async (_, _) => await StopPreviewAsync();
-        refreshButton.Click += async (_, _) => { await StopPreviewAsync(); RefreshTargets(); };
+        kind.SelectedIndexChanged += async (_, _) => { exclusive.Enabled = kind.SelectedIndex == 0; RefreshTargets(); await RestartPreviewAsync(); };
+        filter.TextChanged += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
+        target.SelectedIndexChanged += async (_, _) => { if (!refreshingTargets) await RestartPreviewAsync(); };
+        exclusive.CheckedChanged += async (_, _) => await RestartPreviewAsync();
+        refreshButton.Click += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
+        Shown += async (_, _) => { previewReady = !passive; await RestartPreviewAsync(); };
+        Activated += (_, _) => { if (previewWindow is not null) BringToFront(); };
         previewButton.Click += async (_, _) =>
         {
             if (busy || previewToggleBusy) return;
+            previewRevision++;
             previewToggleBusy = true;
             try { if (previewTask is { IsCompleted: false }) await StopPreviewAsync(); else StartPreview(); }
             finally { previewToggleBusy = false; }
@@ -172,13 +192,19 @@ internal sealed partial class MainForm : BrandedForm
         recordButton.Click += async (_, _) => await ToggleRecordingAsync();
         settingsButton.Click += async (_, _) =>
         {
+            previewRevision++;
             await StopPreviewAsync();
             if (busy || closing) return;
             using var dialog = new SettingsForm(ReadValues());
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
-            try { store.Save(dialog.Settings); settings = dialog.Settings; outputLabel.Text = settings.OutputDirectory; RefreshFiles(); status.Text = "設定を保存しました。"; }
+            try
+            {
+                if (WithPreviewHidden(() => dialog.ShowDialog(this)) == DialogResult.OK)
+                { store.Save(dialog.Settings); settings = dialog.Settings; outputLabel.Text = settings.OutputDirectory; RefreshFiles(); status.Text = "設定を保存しました。"; }
+            }
             catch (Exception error) { ShowError(error); }
+            finally { await RestartPreviewAsync(); }
         };
+        savedFolderButton.Click += (_, _) => Guard(OpenSavedFolder);
         files.DoubleClick += (_, _) => Guard(() => OpenSelected(false));
         tabs.SelectedIndexChanged += (_, _) => { if (tabs.SelectedIndex == 1) RefreshFiles(); };
         FormClosing += ClosingAsync;
@@ -194,6 +220,7 @@ internal sealed partial class MainForm : BrandedForm
 
     private void RefreshTargets()
     {
+        refreshingTargets = true;
         try
         {
             string? previous = (target.SelectedItem as CaptureTarget)?.Id;
@@ -203,11 +230,21 @@ internal sealed partial class MainForm : BrandedForm
             if (target.SelectedIndex < 0 && target.Items.Count > 0) target.SelectedIndex = 0;
         }
         catch (Exception error) { ShowError(error); }
+        finally { refreshingTargets = false; }
+    }
+
+    private async Task RestartPreviewAsync()
+    {
+        int revision = ++previewRevision;
+        await StopPreviewAsync();
+        if (revision != previewRevision || !previewReady || closing || busy || previewToggleBusy || modalDepth > 0 || IsDisposed) return;
+        if (target.SelectedItem is CaptureTarget) StartPreview();
+        else status.Text = "録画対象を選択してください。";
     }
 
     private void StartPreview()
     {
-        if (closing || busy) return;
+        if (closing || busy || modalDepth > 0 || previewTask is { IsCompleted: false }) return;
         if (target.SelectedItem is not CaptureTarget selected) { status.Text = "録画対象を選択してください。"; return; }
         var cancellation = new CancellationTokenSource();
         previewCancellation = cancellation;
@@ -216,7 +253,7 @@ internal sealed partial class MainForm : BrandedForm
         status.Text = "プレビュー中";
         previewTask = Task.Run(async () =>
         {
-            using var source = CaptureFactory.Create(selected, windowOnly);
+            using var source = frameSourceFactory(selected, windowOnly);
             while (true)
             {
                 cancellation.Token.ThrowIfCancellationRequested();
@@ -303,7 +340,7 @@ internal sealed partial class MainForm : BrandedForm
                     FramesPerSecond = settings.FramesPerSecond, QualityCrf = settings.QualityCrf, Container = settings.Container,
                     MaximumDuration = TimeSpan.FromSeconds(settings.MaximumSeconds), RecordInput = settings.RecordInput },
                 cancellation.Token, PublishFrame);
-            status.Text = $"保存完了: {Path.GetFileName(result.VideoPath)}（{result.DurationSeconds:F1}秒）";
+            SetSavedRecording(result.VideoPath, result.DurationSeconds);
             RefreshFiles(result.VideoPath);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { status.Text = "録画開始を中止しました。"; }
@@ -352,14 +389,14 @@ internal sealed partial class MainForm : BrandedForm
     {
         var file = SelectedFile(); if (file is null) return;
         using var dialog = new RenameForm(Path.GetFileNameWithoutExtension(file.VideoPath));
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (WithPreviewHidden(() => dialog.ShowDialog(this)) != DialogResult.OK) return;
         var path = RecordingFiles.Rename(file.VideoPath, dialog.NewBaseName);
         RefreshFiles(path); status.Text = "動画と対応する操作履歴の名前を変更しました。";
     }
     private void RecycleSelected()
     {
         var file = SelectedFile(); if (file is null) return;
-        if (MessageBox.Show(this, $"{file.Name}\n動画と対応する操作履歴を、ごみ箱へ移動しますか？", WindowTitle.Create("削除確認"), MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        if (WithPreviewHidden(() => MessageBox.Show(this, $"{file.Name}\n動画と対応する操作履歴を、ごみ箱へ移動しますか？", WindowTitle.Create("削除確認"), MessageBoxButtons.OKCancel, MessageBoxIcon.Question)) != DialogResult.OK) return;
         try { RecordingFiles.Recycle(file.VideoPath); status.Text = "ごみ箱へ移動しました。"; }
         finally { RefreshFiles(); }
     }
@@ -367,6 +404,22 @@ internal sealed partial class MainForm : BrandedForm
     {
         Directory.CreateDirectory(settings.OutputDirectory);
         Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { settings.OutputDirectory } });
+    }
+
+    private void SetSavedRecording(string videoPath, double duration)
+    {
+        lastSavedVideo = Path.GetFullPath(videoPath);
+        savedFolderButton.Enabled = true;
+        status.Text = $"保存完了: {Path.GetFileName(videoPath)}（{duration:F1}秒）";
+    }
+
+    internal string? SavedRecordingDirectory => lastSavedVideo is null ? null : Path.GetDirectoryName(lastSavedVideo);
+
+    private void OpenSavedFolder()
+    {
+        string? directory = SavedRecordingDirectory;
+        if (directory is null || !Directory.Exists(directory)) throw new DirectoryNotFoundException("最後に保存した動画のフォルダーが見つかりません。");
+        Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true, ArgumentList = { directory } });
     }
 
     private async void ClosingAsync(object? sender, FormClosingEventArgs e)
@@ -414,6 +467,9 @@ internal sealed partial class MainForm : BrandedForm
     {
         if (disposing)
         {
+            closing = true;
+            previewRevision++;
+            previewCancellation?.Cancel();
             frameTimer.Stop(); frameTimer.Dispose();
             DisposeExtras();
             Interlocked.Exchange(ref pendingFrame, null)?.Dispose();

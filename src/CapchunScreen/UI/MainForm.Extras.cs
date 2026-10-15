@@ -8,27 +8,36 @@ internal sealed partial class MainForm
 {
     private readonly CheckBox independent = new() { Text = "独立プレビュー", AccessibleName = "独立プレビュー", AutoSize = true, Margin = new Padding(3, 9, 12, 0) };
     private readonly Button cameraButton = Button("仮想カメラ開始");
+    private readonly Button cameraGuideButton = Button("導入ガイド");
     private readonly Label cameraStatus = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, AccessibleName = "仮想カメラ状態", Text = "Unity Capture" };
     private PreviewForm? previewWindow;
     private Point? previewLocation;
     private VirtualCameraRelay? cameraRelay;
     private bool cameraChanging;
+    private bool previousTopMost;
+    private int modalDepth;
 
     private Control BuildExtraActions()
     {
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 142));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 106));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         cameraButton.Dock = DockStyle.Fill;
         cameraButton.AutoSize = false;
         cameraButton.Margin = new Padding(3, 2, 5, 2);
         panel.Controls.Add(independent, 0, 0);
         panel.Controls.Add(cameraButton, 1, 0);
-        panel.Controls.Add(cameraStatus, 2, 0);
+        cameraGuideButton.Dock = DockStyle.Fill;
+        cameraGuideButton.AutoSize = false;
+        cameraGuideButton.Margin = cameraButton.Margin;
+        panel.Controls.Add(cameraGuideButton, 2, 0);
+        panel.Controls.Add(cameraStatus, 3, 0);
         independent.CheckedChanged += (_, _) => Guard(ToggleIndependentPreview);
         cameraButton.Click += async (_, _) => await ToggleCameraAsync();
+        cameraGuideButton.Click += (_, _) => Guard(ShowCameraGuide);
         return panel;
     }
 
@@ -48,11 +57,45 @@ internal sealed partial class MainForm
         {
             previewLocation = window.Location;
             if (previewWindow == window) previewWindow = null;
+            TopMost = previousTopMost;
             independent.Checked = false;
         };
         if (picture.Image is Bitmap bitmap) window.SetFrame((Bitmap)bitmap.Clone());
-        window.Show(this);
+        previousTopMost = TopMost;
+        TopMost = true;
+        window.Show();
+        BringToFront();
         if (!busy && previewTask is not { IsCompleted: false }) StartPreview();
+    }
+
+    private T WithPreviewHidden<T>(Func<T> action)
+    {
+        previewRevision++;
+        modalDepth++;
+        var window = previewWindow;
+        bool restore = window is { Visible: true };
+        window?.Hide();
+        try { return action(); }
+        finally
+        {
+            modalDepth--;
+            if (restore && !closing && !IsDisposed && window is { IsDisposed: false } && previewWindow == window && independent.Checked)
+            { window.Show(); BringToFront(); }
+        }
+    }
+
+    private void ShowCameraGuide()
+    {
+        using var guide = new UnityCaptureGuideForm();
+        WithPreviewHidden(() => guide.ShowDialog(this));
+        RefreshCameraAvailability();
+    }
+
+    private void RefreshCameraAvailability()
+    {
+        if (cameraRelay is not null) return;
+        var available = UnityCaptureProvider.Probe();
+        cameraStatus.Text = available.Available ? "Unity Capture 導入済み" : "Unity Capture 未導入・使用不可";
     }
 
     private void DistributeFrame(Bitmap frame)
@@ -88,6 +131,7 @@ internal sealed partial class MainForm
             {
                 cameraStatus.Text = "Unity Capture 未導入・使用不可";
                 status.Text = available.Message;
+                ShowCameraGuide();
                 return;
             }
             cameraRelay = new VirtualCameraRelay();
@@ -112,7 +156,7 @@ internal sealed partial class MainForm
                 Filter = "動画|*.mp4;*.mkv;*.avi;*.mov;*.webm|すべてのファイル|*.*",
                 InitialDirectory = Directory.Exists(settings.OutputDirectory) ? settings.OutputDirectory : ""
             };
-            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            if (WithPreviewHidden(() => dialog.ShowDialog(this)) != DialogResult.OK) return;
             paths = dialog.FileNames;
         }
         if (paths.Length > 16) { status.Text = "同時再生は最大16本です。"; return; }

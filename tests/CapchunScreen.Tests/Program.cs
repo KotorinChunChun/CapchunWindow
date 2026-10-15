@@ -17,7 +17,8 @@ internal static class Program
     {
         try
         {
-            var output = Argument(args, "--output") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../dev/history/v0.1.0/logs", $"logic-{DateTime.Now:yyyyMMdd-HHmmss}"));
+            string version = typeof(CapchunScreen.UI.WindowTitle).Assembly.GetName().Version!.ToString(3);
+            var output = Argument(args, "--output") ?? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, $"../../../../../dev/history/v{version}/logs", $"logic-{DateTime.Now:yyyyMMdd-HHmmss}"));
             Directory.CreateDirectory(output);
             ManagementTests.Run(Path.Combine(output, "management-settings"));
             InputTests.Run(Check);

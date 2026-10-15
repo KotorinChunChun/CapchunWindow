@@ -37,9 +37,9 @@ public static class UiTests
                 PerformLayoutTree(form);
                 string label = $"{size.Width}×{size.Height}・{tabs.SelectedTab!.Text}";
                 string[] required = tab == 0
-                    ? ["対象の種類", "対象名検索", "録画対象", "対象を更新", "FPS", "画質", "保存形式", "開始までの秒数", "最長録画秒数", "録画対象プレビュー", "選択ウィンドウのみ（WGC）", "操作履歴をTSVへ保存", "独立プレビュー", "仮想カメラ開始", "仮想カメラ状態"]
+                    ? ["対象の種類", "対象名検索", "録画対象", "対象を更新", "FPS", "画質", "保存形式", "開始までの秒数", "最長録画秒数", "録画対象プレビュー", "選択ウィンドウのみ（WGC）", "操作履歴をTSVへ保存", "独立プレビュー", "仮想カメラ開始", "導入ガイド", "仮想カメラ状態"]
                     : ["録画ファイル一覧", "再生", "複数再生…", "TSVを開く", "名前変更", "ごみ箱へ", "フォルダー", "更新"];
-                string[] common = ["● 録画開始", "プレビュー開始", "設定", "録画状態"];
+                string[] common = ["● 録画開始", "プレビュー開始", "設定", "録画状態", "保存先を開く"];
                 var controls = Descendants(form).Where(IsOnSelectedPage).ToArray();
                 string[] missing = required.Concat(common).Where(name => !controls.Any(control => HasName(control, name))).ToArray();
                 check(missing.Length == 0, $"{label}に必須操作がある{Details(missing)}");
@@ -50,7 +50,29 @@ public static class UiTests
             check(recordButton.AccessibilityObject.Name == recordButton.Text,
                 $"{size.Width}×{size.Height}で読み上げ名が録画停止の表示に追従する");
             check(!form.Visible, $"{size.Width}×{size.Height}の構造検査で画面を表示しない");
+            check(!Field<Button>(form, "savedFolderButton").Enabled && form.SavedRecordingDirectory is null, "保存前は保存先ボタンを無効にする");
+            string savedPath = Path.Combine(root, "実際の保存先", "検証.mp4");
+            typeof(MainForm).GetMethod("SetSavedRecording", PrivateInstance)!.Invoke(form, [savedPath, 32.6]);
+            typeof(MainForm).GetField("settings", PrivateInstance)!.SetValue(form, settings with { OutputDirectory = Path.Combine(root, "変更後の保存先") });
+            check(Field<Button>(form, "savedFolderButton").Enabled && form.SavedRecordingDirectory == Path.GetDirectoryName(savedPath),
+                "保存先設定を変えても最後に保存した動画のフォルダーを保持する");
         }
+
+        using (var guide = new UnityCaptureGuideForm())
+        {
+            CreateHiddenHandle(guide);
+            PerformLayoutTree(guide);
+            CheckBrand(guide, WindowTitle.Create("Unity Capture 導入ガイド"), "導入ガイド", check);
+            CheckGeometry(guide, "導入ガイド", check);
+            var text = Descendants(guide).OfType<TextBox>().Single();
+            check(text.ReadOnly && text.Text.Contains("Install.bat", StringComparison.Ordinal)
+                && text.Text.Contains("Uninstall.bat", StringComparison.Ordinal)
+                && Descendants(guide).OfType<Button>().Any(button => button.Text == "導入状態を再確認"),
+                "導入ガイドから登録・解除と再確認の操作を確認できる");
+            check(!guide.Visible, "導入ガイドの構造検査では配布先やダイアログを開かない");
+        }
+
+        PreviewSelectionTests.Run(check, root);
 
         using (var dialog = new SettingsForm(settings))
         {

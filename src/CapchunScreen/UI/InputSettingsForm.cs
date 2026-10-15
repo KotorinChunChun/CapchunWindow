@@ -87,10 +87,12 @@ internal sealed class InputSettingsForm : BrandedForm
         Add(imports, "アプリ別の説明TSVを追加…", ImportDescriptions); root.Controls.Add(imports, 0, 6);
         testButton.Click += (_, _) => Guard(ToggleTest);
         root.Controls.Add(Row(testButton, new Label { Text = "検出した入力", AutoSize = true }, detected), 0, 7);
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
+        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         footer.Controls.Add(message, 0, 0);
         var close = Row(); var save = ActionButton("保存"); var cancel = ActionButton("キャンセル");
+        close.Margin = Padding.Empty;
         cancel.DialogResult = DialogResult.Cancel;
         save.Click += (_, _) => Guard(() => { StopTest(); Settings = BuildSettings(); DialogResult = DialogResult.OK; Close(); });
         close.Controls.AddRange([save, cancel]); footer.Controls.Add(close, 1, 0); root.Controls.Add(footer, 0, 8);

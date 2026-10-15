@@ -123,6 +123,13 @@ public static class UiTests
             check(!dialog.Visible, "名前変更の構造検査で画面を表示しない");
         }
 
+        foreach (Size size in new[] { new Size(980, 720), new Size(820, 650) })
+        {
+            using var dialog = new InputSettingsForm(settings) { Size = size };
+            CreateHiddenHandle(dialog); PerformLayoutTree(dialog);
+            CheckGeometry(dialog, $"操作記録の設定{size.Width}×{size.Height}", check);
+        }
+
         CheckClosingRace(settings, new SettingsStore(Path.Combine(root, "closing-settings")), check);
         CheckClosingSaveFailure(settings, new SettingsStore(Path.Combine(root, "locked-settings")), check);
         check(!Directory.Exists(settings.OutputDirectory), "UI構造検査と終了処理で録画先を作成・録画しない");

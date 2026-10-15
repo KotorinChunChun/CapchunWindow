@@ -12,6 +12,18 @@ CapchunScreenは、導入済みの **Unity Capture / Unity Video Capture** へ�
 
 停止時は黒背景の「No Signal」を送る。受信側のmutex待機は100msで打ち切り、終了時送信にもキャンセル期限を設ける。受信側が停止・異常終了しても無期限には待たない。
 
+## 導入ガイド
+
+アプリの「導入ガイド」から同じ手順と公式配布先を確認できる。未導入で「仮想カメラ開始」を押した場合にもガイドが開く。
+
+1. [公式リポジトリ](https://github.com/schellingb/UnityCapture)のCode → Download ZIPで取得して展開する。
+2. `Install`フォルダーを継続利用する固定の場所へ置く。登録後にDLLを移動・削除すると使えなくなるため、一時フォルダーから登録しない。
+3. `Install/Install.bat`を実行して1台を登録する。登録に失敗するときは[公式説明](https://github.com/schellingb/UnityCapture#installation)に従い管理者として実行する。
+4. カメラを使うアプリを再起動し、カメラとして「Unity Video Capture」を選ぶ。CapchunScreenでも対象を選んで「仮想カメラ開始」を押す。
+5. ガイドの「導入状態を再確認」で登録状態を調べる。
+
+配置を移動・削除する前に同じフォルダーの`Uninstall.bat`で解除する。ガイドの再確認は登録とDLLの存在を調べる操作であり、受信アプリとの接続確認は配信状態で確認する。
+
 ## 移植した送信処理
 
 元のCapchunScreen.pyはpyvirtualcam 0.15.0の`unitycapture`バックエンドを明示し、RGB映像を20fps指定で送信していた。C#版は同じ公開共有メモリ手順を直接実装する。送信頻度は呼出側のフレーム供給頻度に従う。

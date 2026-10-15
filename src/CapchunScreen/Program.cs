@@ -5,6 +5,24 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Contains("--desktop-status"))
+        {
+            // 最終UIテスト前の読取確認。通常起動・ミューテックス・入力フックは開始しない。
+            try
+            {
+                var store = new Storage.SettingsStore(Option(args, "--settings-dir"));
+                var guard = new Capture.DesktopAccessGuard(Path.Combine(Path.GetDirectoryName(store.FilePath)!, "diagnostics"));
+                var state = guard.Check(force: true);
+                string json = System.Text.Json.JsonSerializer.Serialize(new { timestamp = DateTimeOffset.Now, state.Available,
+                    state.SessionId, state.SessionState, state.CurrentDesktop, state.InputDesktop, state.Operation, state.NativeError,
+                    guard.DiagnosticPath, guard.DiagnosticWriteError });
+                if (Option(args, "--diagnostic-output") is { } output)
+                { string path = Path.GetFullPath(output); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, json); }
+                Console.WriteLine(json); Environment.ExitCode = state.Available ? 0 : 3;
+            }
+            catch (Exception error) { Console.Error.WriteLine(error.Message); Environment.ExitCode = 1; }
+            return;
+        }
         ApplicationConfiguration.Initialize();
         using var singleInstance = new Mutex(true, @"Local\CapchunScreen", out var firstInstance);
         if (!firstInstance)

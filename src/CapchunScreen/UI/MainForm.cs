@@ -10,6 +10,7 @@ namespace CapchunScreen.UI;
 internal sealed partial class MainForm : BrandedForm
 {
     private readonly SettingsStore store;
+    private readonly DesktopAccessGuard desktopAccess;
     private readonly Func<CaptureTarget, bool, IFrameSource> frameSourceFactory;
     private AppSettings settings;
     private readonly ComboBox kind = Choice("対象の種類", "ウィンドウ", "モニター");
@@ -58,10 +59,11 @@ internal sealed partial class MainForm : BrandedForm
     internal string? ManagementStopBlockReason => busy || closing || previewToggleBusy ? "録画・プレビュー切替・終了処理中のため停止できません。" : null;
 
     internal MainForm(SettingsStore store, AppSettings settings, string? warning, bool passive = false,
-        Func<CaptureTarget, bool, IFrameSource>? frameSourceFactory = null)
+        Func<CaptureTarget, bool, IFrameSource>? frameSourceFactory = null, DesktopAccessGuard? desktopAccess = null)
     {
         this.passive = passive;
-        this.frameSourceFactory = frameSourceFactory ?? CaptureFactory.Create;
+        this.desktopAccess = desktopAccess ?? new DesktopAccessGuard(Path.Combine(Path.GetDirectoryName(store.FilePath)!, "diagnostics"));
+        this.frameSourceFactory = frameSourceFactory ?? ((selected, windowOnly) => CaptureFactory.Create(selected, windowOnly, this.desktopAccess));
         this.store = store;
         this.settings = settings;
         Text = WindowTitle.Create();
@@ -87,6 +89,7 @@ internal sealed partial class MainForm : BrandedForm
             elapsed.Text = recordingClock.Elapsed.ToString(@"hh\:mm\:ss");
         };
         frameTimer.Start();
+        ConfigureDesktopMonitoring();
     }
 
     private void BuildLayout()
@@ -230,7 +233,7 @@ internal sealed partial class MainForm : BrandedForm
             previewRevision++;
             await StopPreviewAsync();
             if (busy || closing) return;
-            using var dialog = new InputSettingsForm(ReadValues());
+            using var dialog = new InputSettingsForm(ReadValues(), desktopAccess);
             try
             {
                 if (WithPreviewHidden(() => dialog.ShowDialog(this)) == DialogResult.OK)
@@ -389,8 +392,8 @@ internal sealed partial class MainForm : BrandedForm
                 await Task.Delay(1000, cancellation.Token);
             }
             cancellation.Token.ThrowIfCancellationRequested();
-            using var source = CaptureFactory.Create(selected, settings.ExclusiveWindow);
-            using var input = settings.RecordInput ? new InputMonitor(settings.IncludePlainKeys, settings.InputRecordOverrides) : null;
+            using var source = CaptureFactory.Create(selected, settings.ExclusiveWindow, desktopAccess);
+            using var input = settings.RecordInput ? new InputMonitor(settings.IncludePlainKeys, settings.InputRecordOverrides, desktopAccess) : null;
             recordButton.Text = "■ 録画停止"; status.Text = "録画中  /  Ctrl+Shift+F9で停止";
             recordingClock.Restart();
             var result = await new RecordingSession().RunAsync(source, input, selected.WindowHandle,
@@ -399,6 +402,11 @@ internal sealed partial class MainForm : BrandedForm
                     MaximumDuration = TimeSpan.FromSeconds(settings.MaximumSeconds), RecordInput = settings.RecordInput },
                 cancellation.Token, PublishFrame);
             SetSavedRecording(result.VideoPath, result.DurationSeconds);
+            if (result.InterruptionReason is not null)
+            {
+                status.Text = $"録画中断：{result.DurationSeconds:F1}秒まで保存しました。{result.InterruptionReason}";
+                optionHelp.SetToolTip(status, status.Text + Environment.NewLine + "診断ログ: " + (result.DiagnosticPath ?? desktopAccess.DiagnosticWriteError));
+            }
             RefreshFiles(result.VideoPath);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { status.Text = "録画開始を中止しました。"; }
@@ -476,6 +484,7 @@ internal sealed partial class MainForm : BrandedForm
         lastSavedVideo = Path.GetFullPath(videoPath);
         savedFolderButton.Enabled = true;
         status.Text = $"保存完了: {Path.GetFileName(videoPath)}（{duration:F1}秒）";
+        optionHelp.SetToolTip(status, null);
     }
 
     internal string? SavedRecordingDirectory => lastSavedVideo is null ? null : Path.GetDirectoryName(lastSavedVideo);
@@ -537,13 +546,19 @@ internal sealed partial class MainForm : BrandedForm
             previewCancellation?.Cancel();
             frameTimer.Stop(); frameTimer.Dispose();
             optionHelp.Dispose();
+            desktopTimer.Dispose();
             DisposeExtras();
             Interlocked.Exchange(ref pendingFrame, null)?.Dispose();
             picture.Image?.Dispose();
         }
         base.Dispose(disposing);
     }
-    private void ShowError(Exception error) => status.Text = $"エラー: {error.Message}";
+    private void ShowError(Exception error)
+    {
+        status.Text = $"エラー: {error.Message}";
+        if (error is DesktopAccessException desktop)
+            optionHelp.SetToolTip(status, status.Text + Environment.NewLine + "診断ログ: " + (desktop.DiagnosticPath ?? desktopAccess.DiagnosticWriteError));
+    }
     private void Guard(Action action) { try { action(); } catch (Exception error) { ShowError(error); } }
     private void AddAction(FlowLayoutPanel panel, string text, Action action)
     { var button = Button(text); button.Click += (_, _) => Guard(action); panel.Controls.Add(button); }

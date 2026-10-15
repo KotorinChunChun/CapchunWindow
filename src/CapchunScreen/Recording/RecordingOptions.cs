@@ -11,4 +11,5 @@ public sealed record RecordingOptions
     public bool RecordInput { get; init; } = true;
 }
 
-public sealed record RecordingResult(string VideoPath, string? TsvPath, long Frames, double DurationSeconds);
+public sealed record RecordingResult(string VideoPath, string? TsvPath, long Frames, double DurationSeconds,
+    string? InterruptionReason = null, string? DiagnosticPath = null);

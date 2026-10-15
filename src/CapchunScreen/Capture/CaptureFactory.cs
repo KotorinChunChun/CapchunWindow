@@ -5,14 +5,24 @@ namespace CapchunScreen.Capture;
 public static class CaptureFactory
 {
     public static IFrameSource Create(CaptureTarget target, bool exclusiveWindow)
+        => Create(target, exclusiveWindow, DesktopAccessGuard.Shared);
+
+    internal static IFrameSource Create(CaptureTarget target, bool exclusiveWindow, DesktopAccessGuard guard)
     {
         ArgumentNullException.ThrowIfNull(target);
-        return target.Kind switch
+        guard.RequireAccess();
+        try
         {
-            CaptureKind.Window when exclusiveWindow => new WindowFrameSource(target),
-            CaptureKind.Window or CaptureKind.Monitor => new DesktopFrameSource(target),
-            _ => throw new ArgumentOutOfRangeException(nameof(target))
-        };
+            IFrameSource source = target.Kind switch
+            {
+                CaptureKind.Window when exclusiveWindow => new WindowFrameSource(target),
+                CaptureKind.Window or CaptureKind.Monitor => new DesktopFrameSource(target),
+                _ => throw new ArgumentOutOfRangeException(nameof(target))
+            };
+            return new DesktopGuardedFrameSource(source, guard);
+        }
+        catch (Exception error) when (error is not DesktopAccessException && DesktopAccessGuard.IsAccessDenied(error))
+        { throw guard.Failure(error); }
     }
 }
 

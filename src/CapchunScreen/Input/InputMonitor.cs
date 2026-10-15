@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using CapchunScreen.Capture;
 
 namespace CapchunScreen.Input;
 
@@ -8,6 +9,7 @@ public sealed class InputMonitor : IInputSource, IDisposable
 {
     private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
     private readonly InputBuffer _buffer;
+    private readonly DesktopAccessGuard _desktopAccess;
     private readonly Native.HookProc _keyboardCallback;
     private readonly Native.HookProc _mouseCallback;
     private nint _keyboardHook;
@@ -18,9 +20,14 @@ public sealed class InputMonitor : IInputSource, IDisposable
     public event Action<string>? InputDetected;
 
     public InputMonitor(bool includePlainKeys = false, IReadOnlyDictionary<string, bool>? recordOverrides = null)
+        : this(includePlainKeys, recordOverrides, DesktopAccessGuard.Shared) { }
+
+    internal InputMonitor(bool includePlainKeys, IReadOnlyDictionary<string, bool>? recordOverrides, DesktopAccessGuard desktopAccess)
     {
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("入力記録はメッセージループのあるUIスレッドで開始してください。");
+        _desktopAccess = desktopAccess;
+        _desktopAccess.RequireAccess();
         _buffer = new(includePlainKeys, recordOverrides);
         _keyboardCallback = KeyboardCallback;
         _mouseCallback = MouseCallback;
@@ -36,9 +43,10 @@ public sealed class InputMonitor : IInputSource, IDisposable
             foreach (int key in new[] { 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C })
                 if ((Native.GetAsyncKeyState(key) & 0x8000) != 0) _buffer.KeyChanged(key, true, Native.GetForegroundWindow());
         }
-        catch
+        catch (Exception error)
         {
             ReleaseHooks();
+            if (DesktopAccessGuard.IsAccessDenied(error)) throw _desktopAccess.Failure(error);
             throw;
         }
     }
@@ -46,10 +54,15 @@ public sealed class InputMonitor : IInputSource, IDisposable
     public InputSample Consume(Rectangle bounds, nint targetWindow)
     {
         ObjectDisposedException.ThrowIf(_disposeRequested, this);
+        _desktopAccess.RequireAccess();
         Exception? failure = Volatile.Read(ref _callbackFailure);
         if (failure is not null) throw new InvalidOperationException("入力操作の記録中にエラーが発生しました。", failure);
         if (!Native.GetCursorPos(out var point))
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "マウス位置を取得できません。");
+        {
+            var error = new Win32Exception(Marshal.GetLastWin32Error(), "マウス位置を取得できません。");
+            if (DesktopAccessGuard.IsAccessDenied(error)) throw _desktopAccess.Failure(error);
+            throw error;
+        }
         return _buffer.Consume(bounds, new(point.X, point.Y), Native.GetForegroundWindow(), targetWindow,
             (foreground, target) => target == 0 ? IsForegroundInsideBounds(foreground, bounds) : IsTargetOrOwnedWindow(foreground, target));
     }

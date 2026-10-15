@@ -55,6 +55,7 @@ public sealed class RecordingSession
                 : EmptyInput();
 
             long frames = 0;
+            DesktopAccessException? interruption = null;
             double previewTime = double.NegativeInfinity;
             Stopwatch clock = new();
             await using (FfmpegEncoder encoder = FfmpegEncoder.Start(options, size, partialVideo))
@@ -123,12 +124,25 @@ public sealed class RecordingSession
                         break;
 
                     CapturedFrame captured;
+                    InputSample capturedInput;
                     try
                     {
                         captured = source.Capture(stopToken);
+                        try
+                        {
+                            capturedInput = options.RecordInput
+                                ? MapInputToOutput(input?.Consume(captured.Bounds, targetWindow) ?? EmptyInput(), captured.Bounds.Size, captured.Image.Size, size)
+                                : EmptyInput();
+                        }
+                        catch { captured.Dispose(); throw; }
                     }
                     catch (OperationCanceledException) when (stopToken.IsCancellationRequested)
                     {
+                        break;
+                    }
+                    catch (DesktopAccessException error)
+                    {
+                        interruption = error;
                         break;
                     }
                     using (captured)
@@ -144,15 +158,14 @@ public sealed class RecordingSession
                         while (frames + 1 < dueFrames)
                             await WriteFrameAsync(repeated).ConfigureAwait(false);
                         CopyFrame(captured.Image, canvas, pixels);
-                        lastInput = options.RecordInput
-                            ? MapInputToOutput(input?.Consume(captured.Bounds, targetWindow) ?? EmptyInput(), captured.Bounds.Size, captured.Image.Size, size)
-                            : EmptyInput();
+                        lastInput = capturedInput;
                         await WriteFrameAsync(lastInput).ConfigureAwait(false);
                         PublishPreview();
                     }
                 }
 
-                double stoppedAt = Math.Min(clock.Elapsed.TotalSeconds, limit);
+                // アクセスが失われた時間を静止画像で埋めず、実際に保存できたフレームまで確定する。
+                double stoppedAt = interruption is null ? Math.Min(clock.Elapsed.TotalSeconds, limit) : frames / (double)options.FramesPerSecond;
                 long cancellationTimestamp = Volatile.Read(ref stoppedTimestamp);
                 if (cancellationTimestamp != long.MaxValue)
                     stoppedAt = Math.Min(stoppedAt, Math.Max(0, Stopwatch.GetElapsedTime(startedTimestamp, cancellationTimestamp).TotalSeconds));
@@ -169,6 +182,12 @@ public sealed class RecordingSession
             if (!File.Exists(partialVideo) || new FileInfo(partialVideo).Length == 0)
                 throw new IOException("FFmpeg が録画ファイルを作成しませんでした。");
 
+            if (interruption is not null)
+            {
+                video = Path.Combine(directory, $"{name}_中断.{options.Container}");
+                if (tsv is not null) tsv = Path.Combine(directory, $"{name}_中断.tsv");
+            }
+
             // 動画を最後に公開し、TSV の保存失敗を成功した録画として一覧へ出さない。
             if (tsv is not null)
             {
@@ -176,7 +195,8 @@ public sealed class RecordingSession
                 tsvPublished = true;
             }
             File.Move(partialVideo, video, overwrite: false);
-            return new RecordingResult(video, tsv, frames, frames / (double)options.FramesPerSecond);
+            return new RecordingResult(video, tsv, frames, frames / (double)options.FramesPerSecond,
+                interruption?.Message, interruption?.DiagnosticPath);
         }
         catch
         {

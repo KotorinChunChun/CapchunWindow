@@ -1,11 +1,13 @@
 using CapchunScreen.Input;
 using CapchunScreen.Storage;
+using CapchunScreen.Capture;
 
 namespace CapchunScreen.UI;
 
 internal sealed class InputSettingsForm : BrandedForm
 {
     private readonly AppSettings original;
+    private readonly DesktopAccessGuard desktopAccess;
     private readonly Dictionary<string, bool> overrides;
     private readonly Dictionary<string, Dictionary<string, string>> descriptions;
     private readonly TextBox search = new() { Width = 250, PlaceholderText = "キー名・説明を検索", AccessibleName = "操作記録を検索" };
@@ -32,8 +34,9 @@ internal sealed class InputSettingsForm : BrandedForm
     internal AppSettings Settings { get; private set; }
     internal bool Testing => monitor is not null;
 
-    internal InputSettingsForm(AppSettings settings)
+    internal InputSettingsForm(AppSettings settings, DesktopAccessGuard? desktopAccess = null)
     {
+        this.desktopAccess = desktopAccess ?? DesktopAccessGuard.Shared;
         original = settings;
         Settings = settings;
         overrides = new(settings.InputRecordOverrides ?? [], StringComparer.Ordinal);
@@ -98,7 +101,12 @@ internal sealed class InputSettingsForm : BrandedForm
         help.SetToolTip(plain, "個別に指定していない文字・数字キーの既定値です。個別の有効・無効設定を優先します。");
         help.SetToolTip(app, "説明の参照先です。録画対象のアプリを自動判定する設定ではありません。");
         help.SetToolTip(grid, "記録欄をクリックして切り替えます。Ctrl／Shiftで複数行を選び、一括変更できます。Ctrl+Shift+F9は録画操作用なので記録しません。");
-        testTimer.Tick += (_, _) => { if (Volatile.Read(ref latestInput) is { } value) detected.Text = value; };
+        testTimer.Tick += (_, _) =>
+        {
+            if (!this.desktopAccess.Check().Available)
+            { StopTest(); message.Text = DesktopAccessGuard.UnavailableMessage; return; }
+            if (Volatile.Read(ref latestInput) is { } value) detected.Text = value;
+        };
         FormClosing += (_, _) => StopTest(); RefreshRows();
     }
 
@@ -167,7 +175,7 @@ internal sealed class InputSettingsForm : BrandedForm
     {
         if (monitor is not null) { StopTest(); return; }
         Volatile.Write(ref latestInput, null); detected.Text = "";
-        monitor = new InputMonitor(includePlainKeys: true);
+        monitor = new InputMonitor(true, null, desktopAccess);
         monitor.InputDetected += value => Volatile.Write(ref latestInput, value);
         testTimer.Start(); testButton.Text = "入力テスト停止";
     }

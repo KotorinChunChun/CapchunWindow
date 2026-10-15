@@ -383,6 +383,13 @@ internal sealed partial class MainForm : BrandedForm
         var file = SelectedFile(); if (file is null) { status.Text = "録画ファイルを選択してください。"; return; }
         var path = tsv ? file.TsvPath : file.VideoPath;
         if (!File.Exists(path)) throw new FileNotFoundException("選択したファイルが見つかりません。", path);
+        if (!tsv)
+        {
+            string? ffmpeg = FfmpegLocator.Find(settings.FfmpegPath);
+            if (ffmpeg is null) { status.Text = "動画再生には「設定」でFFmpegを指定してください。"; return; }
+            new MultiPlaybackForm(ffmpeg, [path]).Show(this);
+            return;
+        }
         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     }
     private void RenameSelected()

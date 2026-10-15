@@ -68,7 +68,7 @@ internal sealed partial class MainForm
         if (!busy && previewTask is not { IsCompleted: false }) StartPreview();
     }
 
-    private T WithPreviewHidden<T>(Func<T> action)
+    internal T WithPreviewHidden<T>(Func<T> action)
     {
         previewRevision++;
         modalDepth++;

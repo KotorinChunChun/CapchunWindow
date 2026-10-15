@@ -7,7 +7,7 @@ namespace CapchunScreen.UI;
 public sealed class MultiPlaybackForm : BrandedForm
 {
     private readonly List<PlayerTile> _tiles = [];
-    private readonly PlaybackTimeline _global = new();
+    private bool _allPlaying;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 33 };
     private readonly TrackBar _seek = new() { Dock = DockStyle.Fill, Minimum = 0, Maximum = 10_000, TickStyle = TickStyle.None, AutoSize = false, Name = "GlobalSeek" };
@@ -24,6 +24,11 @@ public sealed class MultiPlaybackForm : BrandedForm
     private bool _seeking;
     private bool _resumeAfterSeek;
     private bool _resourcesDisposed;
+    private bool _fullScreen;
+    private Rectangle _normalBounds;
+    private FormWindowState _normalWindowState;
+    private double GlobalPosition => _tiles.Where(tile => tile.Ready).Select(Position).DefaultIfEmpty(0).Max();
+    private static double Position(PlayerTile tile) => Math.Min(tile.Clock.Position, tile.Player.Info?.DurationSeconds ?? 0);
     private double Duration => _tiles.Where(tile => tile.Ready).Select(tile => tile.Player.Info!.DurationSeconds).DefaultIfEmpty(0).Max();
 
     public MultiPlaybackForm(string ffmpegPath, IReadOnlyList<string> videoPaths)
@@ -32,7 +37,7 @@ public sealed class MultiPlaybackForm : BrandedForm
         ArgumentNullException.ThrowIfNull(videoPaths);
         if (videoPaths.Count is < 1 or > 16)
             throw new ArgumentOutOfRangeException(nameof(videoPaths), "同時再生する動画は 1 ～ 16 本を選択してください。");
-        Text = WindowTitle.Create("複数動画の同時再生");
+        Text = WindowTitle.Create(videoPaths.Count == 1 ? "動画の再生" : "複数動画の同時再生");
         StartPosition = FormStartPosition.CenterParent;
         Size = new(1120, 740);
         MinimumSize = videoPaths.Count > 9 ? new(960, 640) : new(760, 500);
@@ -40,18 +45,22 @@ public sealed class MultiPlaybackForm : BrandedForm
         root.RowStyles.Add(new(SizeType.Absolute, 48));
         root.RowStyles.Add(new(SizeType.Percent, 100));
         root.RowStyles.Add(new(SizeType.Absolute, 28));
-        TableLayoutPanel controls = new() { Dock = DockStyle.Fill, RowCount = 1, ColumnCount = 5 };
+        TableLayoutPanel controls = new() { Dock = DockStyle.Fill, RowCount = 1, ColumnCount = 6 };
         controls.RowStyles.Add(new(SizeType.Percent, 100));
         controls.ColumnStyles.Add(new(SizeType.Absolute, 108));
         controls.ColumnStyles.Add(new(SizeType.Absolute, 100));
         controls.ColumnStyles.Add(new(SizeType.Absolute, 80));
         controls.ColumnStyles.Add(new(SizeType.Percent, 100));
         controls.ColumnStyles.Add(new(SizeType.Absolute, 130));
+        controls.ColumnStyles.Add(new(SizeType.Absolute, 100));
         controls.Controls.Add(_play, 0, 0);
         controls.Controls.Add(_pause, 1, 0);
         controls.Controls.Add(_start, 2, 0);
         controls.Controls.Add(_seek, 3, 0);
         controls.Controls.Add(_time, 4, 0);
+        var help = new Button { Text = "キー操作…", Dock = DockStyle.Fill, Name = "ShortcutHelp" };
+        help.Click += (_, _) => ShowShortcutHelp();
+        controls.Controls.Add(help, 5, 0);
         Size gridSize = GetGridSize(videoPaths.Count);
         TableLayoutPanel grid = new() { Dock = DockStyle.Fill, ColumnCount = gridSize.Width, RowCount = gridSize.Height, Name = "PlayerGrid" };
         for (int i = 0; i < gridSize.Width; i++) grid.ColumnStyles.Add(new(SizeType.Percent, 100f / gridSize.Width));
@@ -64,8 +73,8 @@ public sealed class MultiPlaybackForm : BrandedForm
             tile.Play.Click += (_, _) => ToggleIndividual(tile);
             tile.Seek.MouseDown += (_, _) =>
             {
-                if (_global.IsPlaying) PauseAll();
                 tile.ResumeAfterSeek = tile.Clock.IsPlaying;
+                if (_allPlaying) PauseAll();
                 tile.Clock.Pause();
                 tile.Seeking = true;
             };
@@ -84,7 +93,7 @@ public sealed class MultiPlaybackForm : BrandedForm
         _play.Click += (_, _) => PlayAll();
         _pause.Click += (_, _) => PauseAll();
         _start.Click += (_, _) => SeekAll(0);
-        _seek.MouseDown += (_, _) => { _resumeAfterSeek = _global.IsPlaying; PauseAll(); _seeking = true; };
+        _seek.MouseDown += (_, _) => { _resumeAfterSeek = _allPlaying; PauseAll(); _seeking = true; };
         _seek.MouseUp += (_, _) => { _seeking = false; SeekAll(_seek.Value / 10_000d); if (_resumeAfterSeek) PlayAll(); };
         _seek.Scroll += (_, _) => { if (!_seeking) SeekAll(_seek.Value / 10_000d); };
         Shown += (_, _) => { _loadTask = LoadAsync(); };
@@ -122,7 +131,7 @@ public sealed class MultiPlaybackForm : BrandedForm
             _play.Enabled = _pause.Enabled = _start.Enabled = _seek.Enabled = anyReady;
             int failures = _tiles.Count(tile => !tile.Ready);
             _status.Text = failures == 0
-                ? "全体のシークは最長動画の秒位置に同期します。各枠から個別にも操作できます。"
+                ? "各動画の現在位置から再生します。全体シークは同じ秒位置へ移動。キー操作は上部または動画枠を選択。"
                 : $"{failures} 本を読み込めませんでした。読み込めた動画は再生できます。";
             UpdateControls();
             _timer.Start();
@@ -136,45 +145,35 @@ public sealed class MultiPlaybackForm : BrandedForm
     private void PlayAll()
     {
         if (Duration <= 0) return;
-        if (_global.Position >= Duration) _global.Seek(0);
-        foreach (PlayerTile tile in _tiles)
-        {
-            tile.Clock.Pause();
-            tile.Clock.Seek(_global.Position);
-        }
-        _global.Play();
+        foreach (PlayerTile tile in _tiles.Where(tile => tile.Ready && Position(tile) < tile.Player.Info!.DurationSeconds))
+            tile.Clock.Play();
+        _allPlaying = _tiles.Any(tile => tile.Ready && tile.Clock.IsPlaying);
         UpdateControls();
     }
 
     private void PauseAll()
     {
-        bool globalWasPlaying = _global.IsPlaying;
-        _global.Pause();
+        _allPlaying = false;
         foreach (PlayerTile tile in _tiles)
-        {
-            if (globalWasPlaying) tile.Clock.Seek(Math.Min(_global.Position, tile.Player.Info?.DurationSeconds ?? 0));
             tile.Clock.Pause();
-        }
         UpdateControls();
     }
 
     private void SeekAll(double ratio)
     {
-        bool resume = _global.IsPlaying;
+        bool resume = _allPlaying;
         PauseAll();
         double seconds = Duration * Math.Clamp(ratio, 0, 1);
-        _global.Seek(seconds);
         foreach (PlayerTile tile in _tiles) tile.Clock.Seek(Math.Min(seconds, tile.Player.Info?.DurationSeconds ?? 0));
-        if (resume) _global.Play();
+        if (resume) PlayAll();
         UpdateControls();
     }
 
     private void ToggleIndividual(PlayerTile tile)
     {
         if (!tile.Ready) return;
-        double currentPosition = _global.IsPlaying ? _global.Position : tile.Clock.Position;
-        bool wasPlaying = (_global.IsPlaying || tile.Clock.IsPlaying) && currentPosition < tile.Player.Info!.DurationSeconds;
-        if (_global.IsPlaying) PauseAll();
+        bool wasPlaying = tile.Clock.IsPlaying && Position(tile) < tile.Player.Info!.DurationSeconds;
+        if (_allPlaying) PauseAll();
         if (wasPlaying) tile.Clock.Pause();
         else
         {
@@ -188,7 +187,7 @@ public sealed class MultiPlaybackForm : BrandedForm
     {
         if (!tile.Ready) return;
         double requestedSeconds = tile.Player.Info!.DurationSeconds * tile.Seek.Value / 10_000d;
-        if (_global.IsPlaying) PauseAll();
+        if (_allPlaying) PauseAll();
         tile.Clock.Seek(requestedSeconds);
         UpdateControls();
     }
@@ -198,17 +197,11 @@ public sealed class MultiPlaybackForm : BrandedForm
         _renderBusy = true;
         try
         {
-            if (_global.IsPlaying && _global.Position >= Duration)
-            {
-                PauseAll();
-                _global.Seek(Duration);
-            }
-            double globalTime = _global.Position;
             await Task.WhenAll(_tiles.Where(tile => tile.Ready).Select(async tile =>
             {
                 double duration = tile.Player.Info!.DurationSeconds;
-                double seconds = Math.Min(_global.IsPlaying ? globalTime : tile.Clock.Position, duration);
-                if (!_global.IsPlaying && tile.Clock.IsPlaying && seconds >= duration)
+                double seconds = Position(tile);
+                if (tile.Clock.IsPlaying && seconds >= duration)
                 {
                     tile.Clock.Pause();
                     tile.Clock.Seek(duration);
@@ -236,7 +229,11 @@ public sealed class MultiPlaybackForm : BrandedForm
                     tile.Surface.Invalidate();
                 }
             }));
-            if (!_closing) UpdateControls();
+            if (!_closing)
+            {
+                if (!_tiles.Any(tile => tile.Ready && tile.Clock.IsPlaying)) _allPlaying = false;
+                UpdateControls();
+            }
         }
         catch (Exception ex)
         {
@@ -249,17 +246,114 @@ public sealed class MultiPlaybackForm : BrandedForm
     {
         double duration = Duration;
         _play.Enabled = _pause.Enabled = _start.Enabled = _seek.Enabled = duration > 0 && !_closing;
-        double globalPosition = Math.Min(_global.Position, duration);
+        double globalPosition = GlobalPosition;
         _time.Text = $"{FormatTime(globalPosition)} / {FormatTime(duration)}";
         if (!_seeking) _seek.Value = Ratio(globalPosition, duration);
         foreach (PlayerTile tile in _tiles.Where(tile => tile.Ready))
         {
             double length = tile.Player.Info!.DurationSeconds;
-            double position = Math.Min(_global.IsPlaying ? globalPosition : tile.Clock.Position, length);
+            double position = Position(tile);
             if (!tile.Seeking) tile.Seek.Value = Ratio(position, length);
-            tile.Play.Text = (_global.IsPlaying || tile.Clock.IsPlaying) && position < length ? "Ⅱ" : "▶";
+            tile.Play.Text = tile.Clock.IsPlaying && position < length ? "Ⅱ" : "▶";
             tile.Time.Text = $"{FormatTime(position)} / {FormatTime(length)}";
         }
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        PlayerTile? tile = _tiles.FirstOrDefault(item => item.Container.ContainsFocus);
+        if (HandlePlaybackKey(keyData, tile)) return true;
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private bool HandlePlaybackKey(Keys keyData, PlayerTile? tile)
+    {
+        if (_closing || (keyData & (Keys.Control | Keys.Alt)) != Keys.None) return false;
+        Keys key = keyData & Keys.KeyCode;
+        if (key == Keys.Escape && _fullScreen) { ToggleFullScreen(); return true; }
+        if (key == Keys.F && (keyData & Keys.Modifiers) == Keys.None) { ToggleFullScreen(); return true; }
+        if (key == Keys.F1 || keyData == (Keys.Shift | Keys.OemQuestion)) { ShowShortcutHelp(); return true; }
+        if (Duration <= 0 || (tile is not null && !tile.Ready)) return false;
+        if (keyData is (Keys.Shift | Keys.OemPeriod) or (Keys.Shift | Keys.Oemcomma))
+        {
+            var targets = tile is null ? _tiles.Where(item => item.Ready) : [tile];
+            foreach (var item in targets) item.Clock.Rate = Math.Clamp(item.Clock.Rate + (key == Keys.OemPeriod ? .25 : -.25), .25, 2);
+            _status.Text = $"{(tile is null ? "全体" : tile.Name)}の再生速度: {(tile ?? _tiles.First(item => item.Ready)).Clock.Rate:0.##}x";
+            return true;
+        }
+        if ((keyData & Keys.Shift) != Keys.None) return false;
+        if (key is Keys.K or Keys.Space or Keys.MediaPlayPause)
+        {
+            if (tile is not null) ToggleIndividual(tile);
+            else if (_tiles.Any(item => item.Ready && item.Clock.IsPlaying)) PauseAll();
+            else PlayAll();
+            return true;
+        }
+        double? delta = key switch { Keys.J => -10, Keys.L => 10, Keys.Left => -5, Keys.Right => 5, _ => null };
+        bool step = key is Keys.Oemcomma or Keys.OemPeriod;
+        if (step)
+        {
+            bool playing = tile?.Clock.IsPlaying ?? _tiles.Any(item => item.Ready && item.Clock.IsPlaying);
+            if (playing) return true;
+            delta = key == Keys.OemPeriod ? 1d / 30 : -1d / 30;
+        }
+        double? ratio = key switch
+        {
+            Keys.Home => 0, Keys.End => 1,
+            >= Keys.D0 and <= Keys.D9 => ((int)key - (int)Keys.D0) / 10d,
+            >= Keys.NumPad0 and <= Keys.NumPad9 => ((int)key - (int)Keys.NumPad0) / 10d,
+            _ => null
+        };
+        if (delta is null && ratio is null) return false;
+        if (tile is not null)
+        {
+            bool resume = tile.Clock.IsPlaying;
+            if (_allPlaying) PauseAll();
+            double seconds = ratio is { } fraction ? tile.Player.Info!.DurationSeconds * fraction : Position(tile) + delta!.Value;
+            tile.Clock.Seek(Math.Clamp(seconds, 0, tile.Player.Info!.DurationSeconds));
+            if (resume && Position(tile) < tile.Player.Info.DurationSeconds) tile.Clock.Play();
+        }
+        else if (ratio is { } fraction) SeekAll(fraction);
+        else
+        {
+            // 相対移動は開始位置の差を保つ。端に到達した動画だけをクランプする。
+            foreach (var item in _tiles.Where(item => item.Ready))
+                item.Clock.Seek(Math.Clamp(Position(item) + delta!.Value, 0, item.Player.Info!.DurationSeconds));
+        }
+        UpdateControls();
+        return true;
+    }
+
+    private void ToggleFullScreen()
+    {
+        if (!_fullScreen)
+        {
+            _normalWindowState = WindowState;
+            _normalBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            WindowState = FormWindowState.Normal;
+            FormBorderStyle = FormBorderStyle.None;
+            Bounds = Screen.FromControl(this).Bounds;
+            _fullScreen = true;
+        }
+        else
+        {
+            FormBorderStyle = FormBorderStyle.Sizable;
+            Bounds = _normalBounds;
+            WindowState = _normalWindowState;
+            _fullScreen = false;
+        }
+    }
+
+    private void ShowShortcutHelp()
+    {
+        const string text = "上部の操作欄を選ぶと全体、動画の映像・操作欄を選ぶとその動画を操作します。\n\n"
+            + "Space / K：再生・一時停止\nJ / L：10秒戻る・進む\n← / →：5秒戻る・進む\n"
+            + "Home / End：先頭・最後\n0～9：0～90%へ移動\n, / .：一時停止中に前・次の表示フレーム（30fps）\n"
+            + "< / >（Shift + , / .）：再生速度を0.25倍ずつ変更（0.25～2倍）\nF：全画面切替、Esc：全画面終了\nF1 / ?：この案内\n\n"
+            + "「すべて再生」は各動画の現在位置から再開します。\n「先頭へ」と全体の数字・Home/End・シークバーは同じ秒位置にそろえます。";
+        DialogResult Show() => MessageBox.Show(this, text, WindowTitle.Create("動画のキー操作"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        if (Owner is MainForm main) main.WithPreviewHidden(Show);
+        else Show();
     }
 
     private void MarkFailed(PlayerTile tile, Exception error)
@@ -364,6 +458,8 @@ public sealed class MultiPlaybackForm : BrandedForm
             Container.Controls.Add(title, 0, 0);
             Container.Controls.Add(Surface, 0, 1);
             Container.Controls.Add(controls, 0, 2);
+            Surface.TabStop = true;
+            Surface.MouseDown += (_, _) => Surface.Focus();
         }
     }
 

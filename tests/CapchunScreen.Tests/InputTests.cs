@@ -23,6 +23,49 @@ public static class InputTests
         check(Read(optedIn).Keys == "A", "明示設定時は短い単独文字も記録する");
         check(Read(optedIn).Keys == "None", "消費済み入力を再出力しない");
 
+        foreach (int shift in new[] { 0xA0, 0xA1 })
+        {
+            foreach (int key in new[] { 0x41, 0x31, 0xBA, 0x61 })
+            {
+                var shiftedText = new InputBuffer();
+                shiftedText.KeyChanged(shift, true, 10);
+                shiftedText.KeyChanged(key, true, 10);
+                check(Read(shiftedText).Keys == "None", $"Shift単独修飾の通常文字を押下中も既定で記録しない {shift:X2}/{key:X2}");
+                shiftedText.KeyChanged(key, false, 10);
+                shiftedText.KeyChanged(shift, false, 10);
+                Tap(shiftedText, key);
+                check(Read(shiftedText).Keys == "None", $"Shiftを離した通常文字も既定で記録しない {shift:X2}/{key:X2}");
+            }
+        }
+
+        var shiftedTap = new InputBuffer();
+        shiftedTap.KeyChanged(0xA0, true, 10);
+        Tap(shiftedTap, 0x41);
+        shiftedTap.KeyChanged(0xA0, false, 10);
+        check(Read(shiftedTap).Keys == "None", "フレーム間で離したShift文字も履歴に残さない");
+
+        var shiftedOptIn = new InputBuffer(true);
+        shiftedOptIn.KeyChanged(0xA0, true, 10);
+        Tap(shiftedOptIn, 0x41);
+        shiftedOptIn.KeyChanged(0xA0, false, 10);
+        check(Read(shiftedOptIn).Keys == "Shift,A", "明示した通常文字記録ONはShift文字も記録する");
+
+        foreach (var modifier in new[] { (Key: 0xA2, Expected: "Ctrl,Shift,A"), (Key: 0xA4, Expected: "Shift,Alt,A"), (Key: 0x5B, Expected: "Shift,Win,A") })
+        {
+            var shiftedShortcut = new InputBuffer();
+            shiftedShortcut.KeyChanged(modifier.Key, true, 10);
+            shiftedShortcut.KeyChanged(0xA0, true, 10);
+            Tap(shiftedShortcut, 0x41);
+            shiftedShortcut.KeyChanged(0xA0, false, 10);
+            shiftedShortcut.KeyChanged(modifier.Key, false, 10);
+            check(Read(shiftedShortcut).Keys == modifier.Expected, $"Shiftを併用する操作ショートカットを維持する {modifier.Expected}");
+        }
+
+        var shiftedFunction = new InputBuffer();
+        shiftedFunction.KeyChanged(0xA0, true, 10);
+        Tap(shiftedFunction, 0x70);
+        check(Read(shiftedFunction).Keys == "Shift,F1", "Shiftと非文字キーのショートカットを維持する");
+
         var chord = new InputBuffer();
         chord.KeyChanged(0xA2, true, 10);
         Tap(chord, 0x43);

@@ -146,7 +146,9 @@ internal sealed class InputBuffer(bool includePlainKeys = false)
         // 録画開始・停止に使う共通ホットキーは操作履歴へ出さない。
         if (key == RecordingHotkeyKey
             && (_suppressRecordingHotkey || modifiers.HasFlag(InputModifiers.Control | InputModifiers.Shift))) return false;
-        return GetKeyName(key) is not null && (includePlainKeys || !IsPlainKey(key) || modifiers != InputModifiers.None);
+        // Shiftだけの修飾は大文字・記号などの通常文字入力なので、既定では記録しない。
+        const InputModifiers shortcutModifiers = InputModifiers.Control | InputModifiers.Alt | InputModifiers.Windows;
+        return GetKeyName(key) is not null && (includePlainKeys || !IsPlainKey(key) || (modifiers & shortcutModifiers) != InputModifiers.None);
     }
 
     private static bool IsModifier(int key) => key is 0x10 or 0x11 or 0x12 or 0x5B or 0x5C or >= 0xA0 and <= 0xA5;

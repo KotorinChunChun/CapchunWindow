@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -6,7 +7,7 @@ namespace CapchunScreen.Capture;
 
 public static class CaptureCatalog
 {
-    public static IReadOnlyList<CaptureTarget> GetTargets(CaptureKind kind, string filter = "")
+    public static IReadOnlyList<CaptureTarget> GetTargets(CaptureKind kind, string filter = "", bool includeMinimized = false)
     {
         ArgumentNullException.ThrowIfNull(filter);
         IEnumerable<CaptureTarget> targets = kind switch
@@ -14,10 +15,11 @@ public static class CaptureCatalog
             CaptureKind.Monitor => Screen.AllScreens.Select((screen, index) => new CaptureTarget(screen.DeviceName,
                 $"モニター {index + 1} ({screen.Bounds.Width} × {screen.Bounds.Height}){(screen.Primary ? " メイン" : "")}",
                 CaptureKind.Monitor, 0, screen.Bounds)),
-            CaptureKind.Window => CaptureNative.GetWindows(),
+            CaptureKind.Window => CaptureNative.GetWindows(includeMinimized),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
-        return targets.Where(target => target.Name.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
+        return targets.Where(target => target.Name.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase)
+            || target.ProcessName.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray();
     }
 }
 
@@ -32,21 +34,24 @@ internal static class CaptureNative
         public readonly Rectangle Rectangle => Rectangle.FromLTRB(Left, Top, Right, Bottom);
     }
 
-    internal static IReadOnlyList<CaptureTarget> GetWindows()
+    internal static IReadOnlyList<CaptureTarget> GetWindows(bool includeMinimized = false)
     {
         var windows = new List<CaptureTarget>();
         var ownProcess = (uint)Environment.ProcessId;
         WindowCallback callback = (window, _) =>
         {
-            if (!IsWindowVisible(window) || IsIconic(window) || IsCloaked(window)) return true;
-            GetWindowThreadProcessId(window, out uint processId);
+            if (!IsWindowVisible(window) || !includeMinimized && IsIconic(window) || IsCloaked(window)) return true;
+            uint threadId = GetWindowThreadProcessId(window, out uint processId);
             if (processId == ownProcess || window == GetShellWindow()) return true;
             int length = GetWindowTextLength(window);
             if (length <= 0) return true;
             var title = new StringBuilder(length + 1);
             GetWindowText(window, title, title.Capacity);
             if (title.Length == 0 || !TryGetBounds(window, out var bounds)) return true;
-            windows.Add(new CaptureTarget($"window:{window:X}", title.ToString(), CaptureKind.Window, window, bounds));
+            string processName = "";
+            try { using var process = Process.GetProcessById((int)processId); processName = process.ProcessName; }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException or Win32Exception) { }
+            windows.Add(new CaptureTarget($"window:{window:X}:{processId}:{threadId}", title.ToString(), CaptureKind.Window, window, bounds, processName));
             return true;
         };
         if (!EnumWindows(callback, 0)) throw new Win32Exception(Marshal.GetLastWin32Error(), "ウィンドウ一覧を取得できません。");

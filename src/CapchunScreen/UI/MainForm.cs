@@ -32,6 +32,7 @@ internal sealed partial class MainForm : BrandedForm
     private readonly Button recordButton = Button("● 録画開始");
     private readonly Button previewButton = Button("プレビュー開始");
     private readonly Button refreshButton = Button("対象を更新");
+    private readonly Button thumbnailButton = Button("サムネイル選択");
     private readonly Button settingsButton = Button("設定");
     private readonly Label outputLabel = new() { AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ListView files = new() { View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false, Dock = DockStyle.Fill, AccessibleName = "録画ファイル一覧" };
@@ -115,7 +116,12 @@ internal sealed partial class MainForm : BrandedForm
         refreshButton.Margin = new Padding(3, 0, 3, 0);
         search.Controls.Add(kind, 0, 0); search.Controls.Add(filter, 1, 0); search.Controls.Add(refreshButton, 2, 0);
         recordLayout.Controls.Add(search, 0, 0);
-        recordLayout.Controls.Add(target, 0, 1);
+        var targetRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        targetRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        targetRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
+        thumbnailButton.Dock = DockStyle.Fill; thumbnailButton.AutoSize = false; thumbnailButton.Margin = new Padding(3, 0, 3, 0);
+        targetRow.Controls.Add(target, 0, 0); targetRow.Controls.Add(thumbnailButton, 1, 0);
+        recordLayout.Controls.Add(targetRow, 0, 1);
         recordLayout.Controls.Add(exclusive, 0, 2);
         var options = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true };
         AddOption(options, "FPS", fps); AddOption(options, "画質", quality); AddOption(options, "形式", container);
@@ -134,7 +140,7 @@ internal sealed partial class MainForm : BrandedForm
         optionHelp.SetToolTip(countdown, "録画開始まで待つ秒数です。0ならすぐに開始します。");
         optionHelp.SetToolTip(maximum, "この秒数で録画を自動停止して保存します。0は時間制限なしです。");
         optionHelp.SetToolTip(independent, "選択中の映像を別ウィンドウで表示します。20px単位で移動でき、ダブルクリックで現在のモニター全体へ表示・解除します。");
-        recordingOptions.AddRange([kind, filter, refreshButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton, inputSettingsButton]);
+        recordingOptions.AddRange([kind, filter, refreshButton, thumbnailButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton, inputSettingsButton]);
 
         var libraryLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
         libraryLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
@@ -192,6 +198,7 @@ internal sealed partial class MainForm : BrandedForm
         target.SelectedIndexChanged += async (_, _) => { if (!refreshingTargets) await RestartPreviewAsync(); };
         exclusive.CheckedChanged += async (_, _) => await RestartPreviewAsync();
         refreshButton.Click += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
+        thumbnailButton.Click += async (_, _) => await OpenThumbnailPickerAsync();
         Shown += async (_, _) => { previewReady = !passive; await RestartPreviewAsync(); };
         Activated += (_, _) => { if (modalDepth == 0 && Enabled && previewWindow is not null) BringToFront(); };
         previewButton.Click += async (_, _) =>
@@ -252,7 +259,7 @@ internal sealed partial class MainForm : BrandedForm
         {
             string? previous = (target.SelectedItem as CaptureTarget)?.Id;
             target.Items.Clear();
-            target.Items.AddRange(CaptureCatalog.GetTargets(kind.SelectedIndex == 0 ? CaptureKind.Window : CaptureKind.Monitor, filter.Text).Cast<object>().ToArray());
+            target.Items.AddRange(CaptureCatalog.GetTargets(kind.SelectedIndex == 0 ? CaptureKind.Window : CaptureKind.Monitor, filter.Text, includeMinimized: true).Cast<object>().ToArray());
             target.SelectedItem = target.Items.Cast<CaptureTarget>().FirstOrDefault(t => t.Id == previous);
             if (target.SelectedIndex < 0 && target.Items.Count > 0) target.SelectedIndex = 0;
         }
@@ -267,6 +274,30 @@ internal sealed partial class MainForm : BrandedForm
         if (revision != previewRevision || !previewReady || closing || busy || previewToggleBusy || modalDepth > 0 || IsDisposed) return;
         if (target.SelectedItem is CaptureTarget) StartPreview();
         else status.Text = "録画対象を選択してください。";
+    }
+
+    private async Task OpenThumbnailPickerAsync()
+    {
+        if (busy || closing || modalDepth > 0) return;
+        previewRevision++;
+        await StopPreviewAsync();
+        if (busy || closing || IsDisposed || modalDepth > 0) return;
+        var selectedKind = kind.SelectedIndex == 0 ? CaptureKind.Window : CaptureKind.Monitor;
+        using var picker = new ThumbnailPickerForm(() => CaptureCatalog.GetTargets(selectedKind, includeMinimized: true),
+            new FrameThumbnailCapture(frameSourceFactory), (target.SelectedItem as CaptureTarget)?.Id, filter.Text);
+        picker.Bounds = Screen.FromControl(this).WorkingArea;
+        try
+        {
+            if (WithPreviewHidden(() => picker.ShowDialog(this)) == DialogResult.OK && picker.SelectedEntry is { } selected)
+            {
+                filter.Text = picker.FilterText;
+                RefreshTargets();
+                target.SelectedItem = target.Items.Cast<CaptureTarget>().FirstOrDefault(item => item.Id == selected.Id);
+                if (target.SelectedItem is null) status.Text = "選んだ対象は終了しました。選び直してください。";
+            }
+        }
+        catch (Exception error) { ShowError(error); }
+        finally { await RestartPreviewAsync(); }
     }
 
     private void StartPreview()

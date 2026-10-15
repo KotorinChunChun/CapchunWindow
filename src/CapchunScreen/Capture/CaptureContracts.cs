@@ -2,7 +2,7 @@ namespace CapchunScreen.Capture;
 
 public enum CaptureKind { Monitor, Window }
 
-public sealed record CaptureTarget(string Id, string Name, CaptureKind Kind, nint WindowHandle, Rectangle Bounds)
+public sealed record CaptureTarget(string Id, string Name, CaptureKind Kind, nint WindowHandle, Rectangle Bounds, string ProcessName = "")
 {
     public override string ToString() => Name;
 }

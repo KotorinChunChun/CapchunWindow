@@ -36,7 +36,8 @@ internal sealed class UnityCaptureGuideForm : BrandedForm
         root.RowStyles.Add(new(SizeType.Absolute, 52));
         root.RowStyles.Add(new(SizeType.Absolute, 44));
         root.Controls.Add(new Label { Text = "Unity Captureを導入すると、取得映像を通話・配信アプリへ渡せます。\nこの画面から公式配布先と登録手順を確認できます。", Dock = DockStyle.Fill }, 0, 0);
-        root.Controls.Add(new TextBox { Text = Instructions, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AccessibleName = "Unity Captureの導入手順" }, 0, 1);
+        var instructions = new TextBox { Text = Instructions.ReplaceLineEndings(), Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, AccessibleName = "Unity Captureの導入手順" };
+        root.Controls.Add(instructions, 0, 1);
         root.Controls.Add(_state, 0, 2);
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
         AddButton(actions, "公式配布先", () => Open(UnityCaptureProvider.ProjectUrl));
@@ -47,6 +48,7 @@ internal sealed class UnityCaptureGuideForm : BrandedForm
         CancelButton = close;
         root.Controls.Add(actions, 0, 3);
         Controls.Add(root);
+        Shown += (_, _) => { instructions.Select(0, 0); close.Focus(); };
         RefreshStatus();
     }
 

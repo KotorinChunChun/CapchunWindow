@@ -73,6 +73,9 @@ public static class UiTests
             CheckBrand(guide, WindowTitle.Create("Unity Capture 導入ガイド"), "導入ガイド", check);
             CheckGeometry(guide, "導入ガイド", check);
             var text = Descendants(guide).OfType<TextBox>().Single();
+            check(Enumerable.Range(1, 5).All(number => text.Lines.Any(line => line.StartsWith($"{number}. ", StringComparison.Ordinal)))
+                && text.Text.Contains(Environment.NewLine + "2. ", StringComparison.Ordinal),
+                "導入ガイドはWindowsの複数行入力欄で各手順の改行を保持する");
             check(text.ReadOnly && text.Text.Contains("Install.bat", StringComparison.Ordinal)
                 && text.Text.Contains("Uninstall.bat", StringComparison.Ordinal)
                 && Descendants(guide).OfType<Button>().Any(button => button.Text == "導入状態を再確認"),

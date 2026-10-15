@@ -4,7 +4,7 @@ namespace CapchunScreen.Input;
 internal enum InputModifiers { None = 0, Control = 1, Shift = 2, Alt = 4, Windows = 8 }
 
 /// <summary>フレーム間の短い入力を保持し、消費後も押下中の入力を扱う。</summary>
-internal sealed class InputBuffer(bool includePlainKeys = false)
+internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictionary<string, bool>? recordOverrides = null)
 {
     private const int RecordingHotkeyKey = 0x78;
     private readonly object _gate = new();
@@ -104,6 +104,7 @@ internal sealed class InputBuffer(bool includePlainKeys = false)
             {
                 if (!bounds.Contains(stroke.Position)) continue;
                 if (targetWindow != 0 && !AcceptForeground(stroke.Foreground)) continue;
+                if (!IsMouseAccepted(stroke.Action, stroke.Modifiers)) continue;
                 actions.Add(stroke.Action);
                 if (AcceptForeground(stroke.Foreground)) modifiers |= stroke.Modifiers;
                 if (latest is null || stroke.Sequence > latest.Sequence) latest = stroke;
@@ -112,8 +113,10 @@ internal sealed class InputBuffer(bool includePlainKeys = false)
             if (latest is not null) position = latest.Position;
             if (bounds.Contains(currentPosition) && (targetWindow == 0 || AcceptForeground(foreground)))
             {
-                foreach (string action in _heldMouse) actions.Add(action);
-                if (_heldMouse.Count > 0 && AcceptForeground(foreground)) modifiers |= heldModifiers;
+                bool acceptedMouse = false;
+                foreach (string action in _heldMouse)
+                    if (IsMouseAccepted(action, heldModifiers)) { actions.Add(action); acceptedMouse = true; }
+                if (acceptedMouse && AcceptForeground(foreground)) modifiers |= heldModifiers;
             }
 
             _pendingKeys.Clear();
@@ -141,6 +144,11 @@ internal sealed class InputBuffer(bool includePlainKeys = false)
         return value;
     }
 
+    internal string Describe(string action)
+    {
+        lock (_gate) return InputShortcutCatalog.Combine(action, GetModifiers());
+    }
+
     private bool IsAcceptedKey(int key, InputModifiers modifiers)
     {
         // 録画開始・停止に使う共通ホットキーは操作履歴へ出さない。
@@ -148,18 +156,23 @@ internal sealed class InputBuffer(bool includePlainKeys = false)
             && (_suppressRecordingHotkey || modifiers.HasFlag(InputModifiers.Control | InputModifiers.Shift))) return false;
         // Shiftだけの修飾は大文字・記号などの通常文字入力なので、既定では記録しない。
         const InputModifiers shortcutModifiers = InputModifiers.Control | InputModifiers.Alt | InputModifiers.Windows;
+        if (GetKeyName(key) is { } name && recordOverrides?.TryGetValue(InputShortcutCatalog.Combine(name, modifiers), out bool enabled) == true)
+            return enabled;
         return GetKeyName(key) is not null && (includePlainKeys || !IsPlainKey(key) || (modifiers & shortcutModifiers) != InputModifiers.None);
     }
 
     private static bool IsModifier(int key) => key is 0x10 or 0x11 or 0x12 or 0x5B or 0x5C or >= 0xA0 and <= 0xA5;
-    private static bool IsPlainKey(int key) => key is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A or >= 0x60 and <= 0x6F or >= 0xBA and <= 0xE2;
+    private bool IsMouseAccepted(string action, InputModifiers modifiers) =>
+        recordOverrides?.TryGetValue(InputShortcutCatalog.Combine(action, modifiers), out bool enabled) != true || enabled;
+
+    internal static bool IsPlainKey(int key) => key is >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A or >= 0x60 and <= 0x6F or >= 0xBA and <= 0xE2;
     private static int MouseOrder(string action) => action switch
     {
         "L-Click" => 0, "R-Click" => 1, "M-Click" => 2, "X1-Click" => 3, "X2-Click" => 4,
         "Wheel-Up" => 5, "Wheel-Down" => 6, "Wheel-Left" => 7, "Wheel-Right" => 8, _ => 9
     };
 
-    private static string? GetKeyName(int key) => key switch
+    internal static string? GetKeyName(int key) => key switch
     {
         >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A => ((char)key).ToString(),
         >= 0x70 and <= 0x87 => $"F{key - 0x6F}",

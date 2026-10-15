@@ -11,6 +11,8 @@ public sealed record AppSettings
     public int MaximumSeconds { get; init; } = 0;
     public bool RecordInput { get; init; } = true;
     public bool IncludePlainKeys { get; init; } = false;
+    public Dictionary<string, bool>? InputRecordOverrides { get; init; }
+    public Dictionary<string, Dictionary<string, string>>? InputDescriptions { get; init; }
     public bool ExclusiveWindow { get; init; } = true;
     public bool CaptureWindows { get; init; } = true;
 

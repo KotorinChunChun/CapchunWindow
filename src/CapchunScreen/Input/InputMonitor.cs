@@ -15,12 +15,13 @@ public sealed class InputMonitor : IInputSource, IDisposable
     private Exception? _callbackFailure;
     private volatile bool _disposeRequested;
     private volatile bool _disposed;
+    public event Action<string>? InputDetected;
 
-    public InputMonitor(bool includePlainKeys = false)
+    public InputMonitor(bool includePlainKeys = false, IReadOnlyDictionary<string, bool>? recordOverrides = null)
     {
         if (Thread.CurrentThread.GetApartmentState() != ApartmentState.STA)
             throw new InvalidOperationException("入力記録はメッセージループのあるUIスレッドで開始してください。");
-        _buffer = new(includePlainKeys);
+        _buffer = new(includePlainKeys, recordOverrides);
         _keyboardCallback = KeyboardCallback;
         _mouseCallback = MouseCallback;
         nint module = Native.GetModuleHandle(null);
@@ -79,6 +80,8 @@ public sealed class InputMonitor : IInputSource, IDisposable
                 {
                     var input = Marshal.PtrToStructure<Native.KeyboardInput>(data);
                     _buffer.KeyChanged((int)input.VirtualKey, message is 0x100 or 0x104, Native.GetForegroundWindow());
+                    if (message is 0x100 or 0x104 && InputBuffer.GetKeyName((int)input.VirtualKey) is { } name)
+                        InputDetected?.Invoke(_buffer.Describe(name));
                 }
             }
             catch (Exception ex) { Interlocked.CompareExchange(ref _callbackFailure, ex, null); }
@@ -101,9 +104,16 @@ public sealed class InputMonitor : IInputSource, IDisposable
                     0x20B or 0x20C => (input.MouseData >> 16) == 1 ? "X1-Click" : "X2-Click", _ => null
                 };
                 if (action is not null)
+                {
                     _buffer.MouseButtonChanged(action, message is 0x201 or 0x204 or 0x207 or 0x20B, point, foreground);
+                    if (message is 0x201 or 0x204 or 0x207 or 0x20B) InputDetected?.Invoke(_buffer.Describe(action));
+                }
                 else if (message is 0x20A or 0x20E)
+                {
                     _buffer.WheelMoved(message == 0x20E, unchecked((short)(input.MouseData >> 16)), point, foreground);
+                    bool positive = unchecked((short)(input.MouseData >> 16)) > 0;
+                    InputDetected?.Invoke(_buffer.Describe(message == 0x20E ? positive ? "Wheel-Right" : "Wheel-Left" : positive ? "Wheel-Up" : "Wheel-Down"));
+                }
             }
             catch (Exception ex) { Interlocked.CompareExchange(ref _callbackFailure, ex, null); }
         }

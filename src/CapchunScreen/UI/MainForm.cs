@@ -22,6 +22,7 @@ internal sealed partial class MainForm : BrandedForm
     private readonly NumericUpDown countdown = Number("開始までの秒数", 60);
     private readonly NumericUpDown maximum = Number("最長録画秒数", 36000);
     private readonly CheckBox recordInput = new() { Text = "操作履歴をTSVへ保存", AutoSize = true };
+    private readonly Button inputSettingsButton = Button("操作記録の設定…");
     private readonly ToolTip optionHelp = new() { AutoPopDelay = 15000, InitialDelay = 500, ReshowDelay = 150, ShowAlways = true };
     private readonly PictureBox picture = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 32, 38), SizeMode = PictureBoxSizeMode.Zoom, AccessibleName = "録画対象プレビュー" };
     private readonly Label status = new() { Text = "対象を選ぶとプレビューを表示します。", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "録画状態" };
@@ -121,7 +122,11 @@ internal sealed partial class MainForm : BrandedForm
         options.SetFlowBreak(options.Controls[options.Controls.Count - 1], true);
         AddOption(options, "開始まで(秒)", countdown); AddOption(options, "最長(秒・0=無制限)", maximum);
         recordLayout.Controls.Add(options, 0, 3);
-        recordLayout.Controls.Add(recordInput, 0, 4);
+        var inputActions = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false };
+        inputSettingsButton.AutoSize = false; inputSettingsButton.Size = new Size(160, 30); inputSettingsButton.Margin = new Padding(3, 0, 5, 0);
+        recordInput.Margin = new Padding(3, 9, 12, 0);
+        inputActions.Controls.AddRange([recordInput, inputSettingsButton]);
+        recordLayout.Controls.Add(inputActions, 0, 4);
         recordLayout.Controls.Add(picture, 0, 5);
         recordLayout.Controls.Add(BuildExtraActions(), 0, 6);
         optionHelp.SetToolTip(exclusive, "Windows Graphics Captureで選択したウィンドウだけを取得します。ほかのウィンドウが重なっても映り込みません。最小化中や取得に対応しないアプリでは映像を取得できない場合があります。");
@@ -129,7 +134,7 @@ internal sealed partial class MainForm : BrandedForm
         optionHelp.SetToolTip(countdown, "録画開始まで待つ秒数です。0ならすぐに開始します。");
         optionHelp.SetToolTip(maximum, "この秒数で録画を自動停止して保存します。0は時間制限なしです。");
         optionHelp.SetToolTip(independent, "選択中の映像を別ウィンドウで表示します。20px単位で移動でき、ダブルクリックで現在のモニター全体へ表示・解除します。");
-        recordingOptions.AddRange([kind, filter, refreshButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton]);
+        recordingOptions.AddRange([kind, filter, refreshButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton, inputSettingsButton]);
 
         var libraryLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
         libraryLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
@@ -213,6 +218,20 @@ internal sealed partial class MainForm : BrandedForm
             finally { await RestartPreviewAsync(); }
         };
         savedFolderButton.Click += (_, _) => Guard(OpenSavedFolder);
+        inputSettingsButton.Click += async (_, _) =>
+        {
+            previewRevision++;
+            await StopPreviewAsync();
+            if (busy || closing) return;
+            using var dialog = new InputSettingsForm(ReadValues());
+            try
+            {
+                if (WithPreviewHidden(() => dialog.ShowDialog(this)) == DialogResult.OK)
+                { store.Save(dialog.Settings); settings = dialog.Settings; status.Text = "操作記録の設定を保存しました。"; }
+            }
+            catch (Exception error) { ShowError(error); }
+            finally { await RestartPreviewAsync(); }
+        };
         files.DoubleClick += (_, _) => Guard(() => OpenSelected(false));
         tabs.SelectedIndexChanged += (_, _) => { if (tabs.SelectedIndex == 1) RefreshFiles(); };
         FormClosing += ClosingAsync;
@@ -340,7 +359,7 @@ internal sealed partial class MainForm : BrandedForm
             }
             cancellation.Token.ThrowIfCancellationRequested();
             using var source = CaptureFactory.Create(selected, settings.ExclusiveWindow);
-            using var input = settings.RecordInput ? new InputMonitor(settings.IncludePlainKeys) : null;
+            using var input = settings.RecordInput ? new InputMonitor(settings.IncludePlainKeys, settings.InputRecordOverrides) : null;
             recordButton.Text = "■ 録画停止"; status.Text = "録画中  /  Ctrl+Shift+F9で停止";
             recordingClock.Restart();
             var result = await new RecordingSession().RunAsync(source, input, selected.WindowHandle,

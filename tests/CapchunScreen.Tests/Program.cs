@@ -22,6 +22,7 @@ internal static class Program
             Directory.CreateDirectory(output);
             ManagementTests.Run(Path.Combine(output, "management-settings"));
             InputTests.Run(Check);
+            InputSettingsTests.Run(Check, output);
             StorageTests.Run(Check, output);
             var initialContext = SynchronizationContext.Current;
             try { UiTests.Run(Check, output); PreviewTests.Run(Check); PlaybackTests.Run(Check); }

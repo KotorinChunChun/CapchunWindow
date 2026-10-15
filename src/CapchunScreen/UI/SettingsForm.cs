@@ -19,7 +19,7 @@ public sealed class SettingsForm : BrandedForm
         _original = settings;
         Settings = settings;
         Text = WindowTitle.Create("設定");
-        AccessibleName = "CapchunScreenの設定";
+        AccessibleName = "CapchunWindowの設定";
         ClientSize = new Size(550, 320);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;

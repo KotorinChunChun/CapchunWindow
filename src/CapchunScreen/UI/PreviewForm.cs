@@ -4,6 +4,9 @@ namespace CapchunScreen.UI;
 public sealed class PreviewForm : BrandedForm
 {
     private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
+    private bool _fullScreen;
+    private Rectangle _restoreBounds;
+    internal bool IsFullScreen => _fullScreen;
     private readonly PictureBox _picture = new()
     {
         Dock = DockStyle.Fill, BackColor = Color.Black, SizeMode = PictureBoxSizeMode.Zoom,
@@ -24,7 +27,7 @@ public sealed class PreviewForm : BrandedForm
     {
         Text = WindowTitle.Create("独立プレビュー");
         AccessibleName = "独立プレビュー";
-        AccessibleDescription = "映像を実寸で表示します。画面に収まらない映像だけ縮小します。左ドラッグで移動し、Escapeまたは右クリックメニューで閉じます。";
+        AccessibleDescription = "左ドラッグで20px単位で移動します。ダブルクリックで現在のモニター全体に黒背景で表示し、再度ダブルクリックまたはEscapeで元へ戻します。通常表示のEscapeまたは右クリックメニューで閉じます。";
         FormBorderStyle = FormBorderStyle.None;
         TopMost = true;
         ShowInTaskbar = true;
@@ -42,6 +45,7 @@ public sealed class PreviewForm : BrandedForm
             control.MouseDown += BeginDrag;
             control.MouseMove += ContinueDrag;
             control.MouseUp += EndDrag;
+            control.MouseDoubleClick += (_, args) => { if (args.Button == MouseButtons.Left) ToggleFullScreen(); };
             control.MouseCaptureChanged += (_, _) =>
             {
                 if (_dragging && !control.Capture) FinishDrag();
@@ -52,7 +56,7 @@ public sealed class PreviewForm : BrandedForm
             if (args.KeyCode != Keys.Escape) return;
             args.Handled = true;
             args.SuppressKeyPress = true;
-            Close();
+            if (_fullScreen) ToggleFullScreen(); else Close();
         };
     }
 
@@ -80,7 +84,7 @@ public sealed class PreviewForm : BrandedForm
         {
             Rectangle workingArea = Screen.FromPoint(Location).WorkingArea;
             Size displaySize = FitSizeToWorkingArea(ownedFrame.Size, workingArea.Size);
-            if (ClientSize != displaySize)
+            if (!_fullScreen && ClientSize != displaySize)
             {
                 ClientSize = displaySize;
                 if (!_dragging) Location = KeepInsideWorkingArea(Location, displaySize, workingArea);
@@ -119,9 +123,34 @@ public sealed class PreviewForm : BrandedForm
         Math.Clamp(location.X, workingArea.Left, Math.Max(workingArea.Left, workingArea.Right - size.Width)),
         Math.Clamp(location.Y, workingArea.Top, Math.Max(workingArea.Top, workingArea.Bottom - size.Height)));
 
+    internal static Point SnapLocation(Point location, Size size, Rectangle area)
+    {
+        static int Snap(int value, int start, int available) => start + 20 * Math.Clamp(
+            (int)Math.Round((value - start) / 20d, MidpointRounding.AwayFromZero), 0, Math.Max(0, available / 20));
+        return new(Snap(location.X, area.Left, area.Width - size.Width), Snap(location.Y, area.Top, area.Height - size.Height));
+    }
+
+    internal void ToggleFullScreen()
+    {
+        if (_dragging) FinishDrag();
+        foreach (Control control in Controls) control.Capture = false;
+        if (!_fullScreen)
+        {
+            _restoreBounds = Bounds;
+            Rectangle monitor = Screen.FromRectangle(Bounds).Bounds;
+            _fullScreen = true;
+            Bounds = monitor;
+        }
+        else
+        {
+            _fullScreen = false;
+            Bounds = _restoreBounds;
+        }
+    }
+
     private void BeginDrag(object? sender, MouseEventArgs args)
     {
-        if (args.Button != MouseButtons.Left || sender is not Control control) return;
+        if (_fullScreen || args.Clicks > 1 || args.Button != MouseButtons.Left || sender is not Control control) return;
         _dragging = true;
         _dragStartCursor = Cursor.Position;
         _dragStartLocation = Location;
@@ -133,8 +162,9 @@ public sealed class PreviewForm : BrandedForm
     {
         if (!_dragging || !args.Button.HasFlag(MouseButtons.Left)) return;
         Point cursor = Cursor.Position;
-        Location = new Point(_dragStartLocation.X + cursor.X - _dragStartCursor.X,
+        var desired = new Point(_dragStartLocation.X + cursor.X - _dragStartCursor.X,
             _dragStartLocation.Y + cursor.Y - _dragStartCursor.Y);
+        Location = SnapLocation(desired, Size, Screen.FromPoint(cursor).WorkingArea);
     }
 
     private void EndDrag(object? sender, MouseEventArgs args)
@@ -152,7 +182,7 @@ public sealed class PreviewForm : BrandedForm
         Size displaySize = _picture.Image is { } image ? FitSizeToWorkingArea(image.Size, workingArea.Size)
             : FitSizeToWorkingArea(ClientSize, workingArea.Size);
         ClientSize = displaySize;
-        Location = KeepInsideWorkingArea(Location, displaySize, workingArea);
+        Location = SnapLocation(Location, displaySize, workingArea);
     }
 
     private void ReleaseFrame()

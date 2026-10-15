@@ -22,6 +22,7 @@ internal sealed partial class MainForm : BrandedForm
     private readonly NumericUpDown countdown = Number("開始までの秒数", 60);
     private readonly NumericUpDown maximum = Number("最長録画秒数", 36000);
     private readonly CheckBox recordInput = new() { Text = "操作履歴をTSVへ保存", AutoSize = true };
+    private readonly ToolTip optionHelp = new() { AutoPopDelay = 15000, InitialDelay = 500, ReshowDelay = 150, ShowAlways = true };
     private readonly PictureBox picture = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 32, 38), SizeMode = PictureBoxSizeMode.Zoom, AccessibleName = "録画対象プレビュー" };
     private readonly Label status = new() { Text = "対象を選ぶとプレビューを表示します。", Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, AccessibleName = "録画状態" };
     private readonly Button savedFolderButton = Button("保存先を開く");
@@ -98,8 +99,9 @@ internal sealed partial class MainForm : BrandedForm
         var library = new TabPage("録画ファイル") { Padding = new Padding(8) };
         tabs.TabPages.AddRange([recording, library]);
         var recordLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 7, ColumnCount = 1 };
-        foreach (int height in new[] { 40, 40, 35, 80, 32, 42 }) recordLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        foreach (int height in new[] { 40, 40, 35, 80, 38 }) recordLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         recordLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        recordLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         recording.Controls.Add(recordLayout);
         var search = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
         search.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -116,11 +118,17 @@ internal sealed partial class MainForm : BrandedForm
         recordLayout.Controls.Add(exclusive, 0, 2);
         var options = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true };
         AddOption(options, "FPS", fps); AddOption(options, "画質", quality); AddOption(options, "形式", container);
+        options.SetFlowBreak(options.Controls[options.Controls.Count - 1], true);
         AddOption(options, "開始まで(秒)", countdown); AddOption(options, "最長(秒・0=無制限)", maximum);
         recordLayout.Controls.Add(options, 0, 3);
         recordLayout.Controls.Add(recordInput, 0, 4);
-        recordLayout.Controls.Add(BuildExtraActions(), 0, 5);
-        recordLayout.Controls.Add(picture, 0, 6);
+        recordLayout.Controls.Add(picture, 0, 5);
+        recordLayout.Controls.Add(BuildExtraActions(), 0, 6);
+        optionHelp.SetToolTip(exclusive, "Windows Graphics Captureで選択したウィンドウだけを取得します。ほかのウィンドウが重なっても映り込みません。最小化中や取得に対応しないアプリでは映像を取得できない場合があります。");
+        optionHelp.SetToolTip(recordInput, "動画と同名のTSVに、映像内の時刻・フレーム番号・マウス座標・クリック・キー操作を保存します。動画には焼き込みません。記録対象は「操作記録の設定」で選べます。");
+        optionHelp.SetToolTip(countdown, "録画開始まで待つ秒数です。0ならすぐに開始します。");
+        optionHelp.SetToolTip(maximum, "この秒数で録画を自動停止して保存します。0は時間制限なしです。");
+        optionHelp.SetToolTip(independent, "選択中の映像を別ウィンドウで表示します。20px単位で移動でき、ダブルクリックで現在のモニター全体へ表示・解除します。");
         recordingOptions.AddRange([kind, filter, refreshButton, target, exclusive, fps, quality, container, countdown, maximum, recordInput, settingsButton]);
 
         var libraryLayout = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
@@ -478,6 +486,7 @@ internal sealed partial class MainForm : BrandedForm
             previewRevision++;
             previewCancellation?.Cancel();
             frameTimer.Stop(); frameTimer.Dispose();
+            optionHelp.Dispose();
             DisposeExtras();
             Interlocked.Exchange(ref pendingFrame, null)?.Dispose();
             picture.Image?.Dispose();

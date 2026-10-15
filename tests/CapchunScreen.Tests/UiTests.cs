@@ -44,6 +44,20 @@ public static class UiTests
                 string[] missing = required.Concat(common).Where(name => !controls.Any(control => HasName(control, name))).ToArray();
                 check(missing.Length == 0, $"{label}に必須操作がある{Details(missing)}");
                 CheckGeometry(form, label, check);
+                if (tab == 0)
+                {
+                    var thumbnail = Field<PictureBox>(form, "picture");
+                    var extra = Field<CheckBox>(form, "independent");
+                    check(extra.PointToScreen(Point.Empty).Y >= thumbnail.PointToScreen(new Point(0, thumbnail.Height)).Y,
+                        $"{label}で独立プレビュー等をサムネイルの下へ配置する");
+                    var start = Field<NumericUpDown>(form, "countdown");
+                    var max = Field<NumericUpDown>(form, "maximum");
+                    check(start.PointToScreen(Point.Empty).Y == max.PointToScreen(Point.Empty).Y && max.PointToScreen(Point.Empty).X > start.PointToScreen(Point.Empty).X,
+                        $"{label}で最長時間を開始までの右へ同じ行に配置する");
+                    var help = Field<ToolTip>(form, "optionHelp");
+                    check(help.GetToolTip(Field<CheckBox>(form, "exclusive"))?.Contains("重なっても") == true && help.GetToolTip(Field<CheckBox>(form, "recordInput"))?.Contains("TSV") == true,
+                        "対象ウィンドウのみとTSV保存にツールチップがある");
+                }
             }
             var recordButton = Field<Button>(form, "recordButton");
             recordButton.Text = "■ 録画停止";

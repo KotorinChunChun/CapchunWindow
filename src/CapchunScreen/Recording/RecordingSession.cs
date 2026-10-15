@@ -36,7 +36,7 @@ public sealed class RecordingSession
         string directory = Path.GetFullPath(options.OutputDirectory);
         Directory.CreateDirectory(directory);
         string unique = Guid.NewGuid().ToString("N");
-        string name = $"CapchunScreen_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{unique[..8]}";
+        string name = $"CapchunWindow_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{unique[..8]}";
         string video = Path.Combine(directory, $"{name}.{options.Container}");
         string? tsv = options.RecordInput ? Path.Combine(directory, $"{name}.tsv") : null;
         string partialVideo = Path.Combine(directory, $".capchunscreen-{unique}.partial.{options.Container}");

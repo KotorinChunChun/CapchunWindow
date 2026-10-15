@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "capchun-screen",
   "name": "CapchunScreen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "summary": "モニターや選択ウィンドウを録画し、操作履歴をTSVへ保存する",
   "category": "録画",
   "executable": "artifacts/management/bin/CapchunScreen/debug/CapchunScreen.exe",
@@ -42,7 +42,7 @@
       "kind": "external",
       "optional": true,
       "feature": "仮想カメラ",
-      "guide": "仮想カメラ使用時のみ別途ドライバーが必要です。"
+      "guide": "仮想カメラ使用時のみ別途ドライバーが必要です。CapchunScreenの「導入ガイド」で公式配布先と導入手順を確認できます。"
     }
   ]
 }

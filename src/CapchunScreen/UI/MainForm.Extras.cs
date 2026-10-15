@@ -75,10 +75,13 @@ internal sealed partial class MainForm
         var window = previewWindow;
         bool restore = window is { Visible: true };
         window?.Hide();
+        bool restoreTopMost = TopMost;
+        TopMost = false;
         try { return action(); }
         finally
         {
             modalDepth--;
+            if (!IsDisposed) TopMost = restoreTopMost;
             if (restore && !closing && !IsDisposed && window is { IsDisposed: false } && previewWindow == window && independent.Checked)
             { window.Show(); BringToFront(); }
         }

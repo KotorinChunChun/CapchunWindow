@@ -50,6 +50,14 @@ public static class UiTests
             check(recordButton.AccessibilityObject.Name == recordButton.Text,
                 $"{size.Width}×{size.Height}で読み上げ名が録画停止の表示に追従する");
             check(!form.Visible, $"{size.Width}×{size.Height}の構造検査で画面を表示しない");
+            form.TopMost = true;
+            bool modalTopMost = form.WithPreviewHidden(() => form.TopMost);
+            check(!modalTopMost && form.TopMost, "モーダル操作中は本体の最前面を解除し、終了時に元へ戻す");
+            bool failed = false;
+            try { form.WithPreviewHidden<bool>(() => throw new IOException("意図的なダイアログ失敗")); }
+            catch (IOException) { failed = true; }
+            check(failed && form.TopMost && Field<int>(form, "modalDepth") == 0, "ダイアログの失敗時も最前面とモーダル状態を復元する");
+            form.TopMost = false;
             check(!Field<Button>(form, "savedFolderButton").Enabled && form.SavedRecordingDirectory is null, "保存前は保存先ボタンを無効にする");
             string savedPath = Path.Combine(root, "実際の保存先", "検証.mp4");
             typeof(MainForm).GetMethod("SetSavedRecording", PrivateInstance)!.Invoke(form, [savedPath, 32.6]);

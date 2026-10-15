@@ -180,7 +180,7 @@ internal sealed partial class MainForm : BrandedForm
         exclusive.CheckedChanged += async (_, _) => await RestartPreviewAsync();
         refreshButton.Click += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
         Shown += async (_, _) => { previewReady = !passive; await RestartPreviewAsync(); };
-        Activated += (_, _) => { if (previewWindow is not null) BringToFront(); };
+        Activated += (_, _) => { if (modalDepth == 0 && Enabled && previewWindow is not null) BringToFront(); };
         previewButton.Click += async (_, _) =>
         {
             if (busy || previewToggleBusy) return;

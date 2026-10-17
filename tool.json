@@ -11,7 +11,8 @@
   "manual": "docs/users-guide.md",
   "readme": "README.md",
   "shortcuts": "config/shortcuts.json",
-  "distributionStatus": "unpublished",
+  "distributionStatus": "published",
+  "repositoryUrl": "https://github.com/KotorinChunChun/CapchunWindow",
   "supportedEnvironment": "windows11-x64",
   "investigationStatus": "confirmed",
   "capabilities": [

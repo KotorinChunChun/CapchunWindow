@@ -4,6 +4,8 @@
 
 ## 起動
 
+[公開Releases](https://github.com/KotorinChunChun/CapchunWindow/releases)の`CapchunWindow-0.1.2-setup.exe`で利用者単位に導入できます。.NETランタイム同梱の未署名開発版です。設定・録画・TSVは更新・削除時も保持します。[導入・依存物・注意事項](docs/install.md)を確認してください。
+
 Windows 11 x64、.NET 10 SDK、H.264（libx264）対応FFmpegが必要です。Pythonは不要です。
 
 ```powershell
@@ -25,7 +27,7 @@ pwsh -File dev/scripts/start.ps1
 - 最大16本の動画の各現在位置からの同時再生、全体・個別の一時停止とシーク、YouTubeに近いキー操作。
 - Unity Captureの公式配布先と登録・解除手順を表示する導入ガイド。
 
-音声録音、動画編集、入力演出の再生時重畳は含みません。同時再生は元と同じ音声なしです。仮想カメラの利用には別途Unity Captureドライバーが必要です。旧Pythonの設定・録画は変更しません。KotorinToys本体からの起動管理に対応しています。配布・外部公開は未実施です。
+音声録音、動画編集、入力演出の再生時重畳は含みません。同時再生は元と同じ音声なしです。仮想カメラの利用には別途Unity Captureドライバーが必要です。旧Pythonの設定・録画は変更しません。KotorinToys 0.1.2以降の本体からの導入・更新・削除と起動管理に対応します。FFmpegやドライバーは同梱しません。機密入力を含む録画・操作記録には使用しないでください。
 
 [使い方](docs/users-guide.md) / [開発・検証](docs/developers-guide.md) / [抽出対応表](docs/migration.md) / [v0.1.2実装報告](dev/history/v0.1.2/v0.1.2-imp.md)
 

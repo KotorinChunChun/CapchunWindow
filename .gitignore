@@ -7,3 +7,14 @@ release/
 /dev/history/*/logs/
 *.user
 .vs/
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.sqlite*
+*.db
+*.db-wal
+*.db-shm

@@ -8,7 +8,7 @@
 |---|---|---|---|
 |CAP-01|高（機密性、修正済み）。既定の入力記録中、録画対象でShift付き英字・数字・記号を入力すると、通常文字記録OFFでもTSVにキーが残っていた。秘匿欄でもキー名が漏れ、TSV共有時に露出し得る。|修正前`src/CapchunScreen/Input/InputBuffer.cs:149` の判定が全修飾キーを許可。`src/CapchunScreen/Storage/AppSettings.cs:12` は入力記録ON/通常文字OFFが既定。`src/CapchunScreen/Recording/RecordingSession.cs:77` でキーをTSVへ保存。|Shiftだけによる文字入力を通常文字として既定で抑止した。Ctrl/Alt/Winショートカットと明示的な通常文字記録は維持。合成回帰で修正前9失敗→修正後全154成功。|
 |CAP-02|高（条件付き、設計判断）。通常文字記録を利用者が有効にするとpassword欄でも文字キーを保存し得る。Shiftだけの修正では解決しない。|`src/CapchunScreen/Input/InputMonitor.cs:80`、`Input/InputBuffer.cs:149`。foreground/window範囲のみで、password/secure-input判定がない。|UIA判定不能時の停止、除外アプリ、入力/映像双方の保護範囲と利用者向け仕様を決める必要がある。今回の重大判断除外により保留。|
-|CAP-03|中。同一利用者が管理pipeへ大きな要求や極端に長いrequestIdを送り応答を読まない場合、メモリ増大や管理受付停止が可能。|`src/CapchunScreen/Integration/ManagementEndpoint.cs:45` のReadLineAsync上限なし、`:86` のWriteLineAsyncにdeadline未適用。|要求/応答サイズ上限と書込み期限を共通契約へ追加。中のため報告まで。|
+|CAP-03|中。同一利用者が管理pipeへ大きな要求や極端に長いrequestIdを送り応答を読まない場合、メモリ増大や管理受付停止が可能。|`src/CapchunScreen/Integration/ManagementEndpoint.cs:45` のReadLineAsync上限なし、`:86` のWriteLineAsyncにdeadline未適用。|2026-10-25修正済み：要求を4096文字までに制限し、超えたら応答せずに切断する。応答の書込みにも接続時の2秒期限を適用した。上限の境界値を自動検査で確認した（[v0.1.3報告](../../history/v0.1.3/v0.1.3-imp.md)）。他製品と共有する契約の側は未変更。|
 
 `CurrentUserOnly`と2秒の読取り期限（同ファイル:38、:41）、FFmpegの`ArgumentList`/`UseShellExecute=false`（`Recording/FfmpegEncoder.cs:25`）、対象窓/録画範囲の入力絞り込み（`Input/InputMonitor.cs:46`）を確認した。これらはpassword保護の代わりにはならない。
 

@@ -13,7 +13,7 @@ internal sealed class UnityCaptureGuideForm : BrandedForm
         3. Installフォルダーの Install.bat を実行し、Unity Video Captureを登録します。
            登録に失敗する場合は、公式説明に従い管理者として実行します。
         4. カメラを使うアプリを再起動し、「Unity Video Capture」を選びます。
-           CapchunScreenで対象を選び、「仮想カメラ開始」を押します。
+           CapchunWindowで対象を選び、「仮想カメラ開始」を押します。
         5. 導入後は下の「導入状態を再確認」を押してください。
 
         ファイルを移動・削除する前に、同じInstallフォルダーのUninstall.batで登録を解除します。

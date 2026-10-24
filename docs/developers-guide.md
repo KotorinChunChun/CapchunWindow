@@ -8,7 +8,7 @@ pwsh -File dev/scripts/test.ps1
 pwsh -File dev/scripts/test.ps1 -FfmpegPath C:\path\ffmpeg.exe -FfprobePath C:\path\ffprobe.exe
 ```
 
-通常テストは入力・設定・ファイル操作の合成データ、非表示画面の配置と再生状態を扱う。FFmpeg引数を渡すと合成映像を実際にMP4/MKVへ保存し、デコードとフレーム数、時刻で内容の変わる映像のシーク、16デコーダーの同時取得と終了を検査する。実行結果は製品版情報に対応する`dev/history/vX.Y.Z/logs/tests-*/`に置く。`test.ps1 -Version v0.1.2`で対象版を明示できる。Unity Captureの合成受信テストは[仮想カメラの開発時の確認](virtual-camera.md#開発時の確認)を参照する。
+通常テストは入力・設定・ファイル操作の合成データ、非表示画面の配置と再生状態を扱う。入力フックの開始・再設置・別スレッドからの終了だけは実際の低レベルフックを短時間設置して検査する。入力内容は判定に使わず、ファイルへ保存しない。FFmpeg引数を渡すと合成映像を実際にMP4/MKVへ保存し、デコードとフレーム数、時刻で内容の変わる映像のシーク、16デコーダーの同時取得と終了を検査する。実行結果は製品版情報に対応する`dev/history/vX.Y.Z/logs/tests-*/`に置く。`test.ps1 -Version v0.1.3`のように対象版を明示できる。Unity Captureの合成受信テストは[仮想カメラの開発時の確認](virtual-camera.md#開発時の確認)を参照する。
 
 ```powershell
 dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
@@ -19,13 +19,13 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 
 同じhelperの`--scene`は閉じるまで動く録画試験用窓。実UI検証ではこれを対象に選ぶ。テスト用設定を分離して起動する場合は`start.ps1 -SettingsDirectory <対象版logs内の設定フォルダー> -FfmpegPath <絶対パス>`を使う。
 
-実施済みのテスト件数、録画したMP4とTSVの照合、実操作動画の台帳と未検証範囲は[この版の実装報告](../dev/history/v0.1.2/v0.1.2-imp.md)に記録する。操作風景の録画と、CapchunWindow自身が生成した動画は別の証跡として扱う。
+実施済みのテスト件数、録画したMP4とTSVの照合、実操作動画の台帳と未検証範囲は[v0.1.2の実装報告](../dev/history/v0.1.2/v0.1.2-imp.md)と[公開後のレビュー修正](../dev/history/v0.1.3/v0.1.3-imp.md)に記録する。操作風景の録画と、CapchunWindow自身が生成した動画は別の証跡として扱う。
 
 ## 構成
 
 - Capture: モニター/GDI、HWND選択、WGCとD3D11資源管理。
-- Input: 録画時だけ有効なフック、入力蓄積、対象範囲判定。
-- Recording: エンコーダ、単調時計、固定寸法・TSV対応、保存確定。
+- Input: 録画時だけ有効なフック、入力蓄積、対象範囲判定。フックはメッセージループだけを回す専用スレッドに置き、UIスレッドの負荷で全体の入力を遅らせない。押下中キーは消費時に`GetAsyncKeyState`と照合し、250ms以上前の押下で実際に離されているものを解放する。`GetLastInputInfo`の最終入力からフックの最終受信までが3秒以上空いたら、Windowsに外されたとみなして再設置し、録画結果の`InputWarning`で利用者へ伝える。
+- Recording: エンコーダ、単調時計、固定寸法・TSV対応、保存確定。H.264用の偶数化で足す1px以内の余白は右・下の黒帯とし、取得画像を再サンプリングしない。
 - Storage: 設定、録画一覧、改名・ごみ箱。
 - Playback: FFmpegによる独立デコード、単調時計、シーク・終了処理。
 - VirtualCamera: UnityCaptureの登録検出と共有メモリ送信、最新フレームの配信ワーカー。

@@ -8,12 +8,13 @@
 
 Windows 11 x64、.NET 10 SDK、H.264（libx264）対応FFmpegが必要です。Pythonは不要です。
 
+リポジトリのフォルダーで次を実行します。
+
 ```powershell
-cd C:\develop\KotorinToys\tools\CapchunScreen
 pwsh -File dev/scripts/start.ps1
 ```
 
-初回は「設定」で`ffmpeg.exe`と録画の保存先を指定します。FFmpegはEXEの隣・EXEから見た`.tools/ffmpeg/bin/`・PATHからも検出します。既存のFFmpegを使って起動する場合は、`start.ps1 -FfmpegPath <ffmpeg.exeの絶対パス>`でも指定できます。FFmpegの自動ダウンロードやドライバー導入は行いません。
+初回は「設定」で`ffmpeg.exe`と録画の保存先を指定します。FFmpegはEXEの隣・EXEから見た`.tools/ffmpeg/bin/`・PATHの絶対パス項目からも検出します。既存のFFmpegを使って起動する場合は、`start.ps1 -FfmpegPath <ffmpeg.exeの絶対パス>`でも指定できます。FFmpegの自動ダウンロードやドライバー導入は行いません。
 
 ## 主な機能
 
@@ -29,8 +30,8 @@ pwsh -File dev/scripts/start.ps1
 
 音声録音、動画編集、入力演出の再生時重畳は含みません。同時再生は元と同じ音声なしです。仮想カメラの利用には別途Unity Captureドライバーが必要です。旧Pythonの設定・録画は変更しません。KotorinToys 0.1.2以降の本体からの導入・更新・削除と起動管理に対応します。FFmpegやドライバーは同梱しません。機密入力を含む録画・操作記録には使用しないでください。
 
-[使い方](docs/users-guide.md) / [開発・検証](docs/developers-guide.md) / [抽出対応表](docs/migration.md) / [v0.1.2実装報告](dev/history/v0.1.2/v0.1.2-imp.md)
+[使い方](docs/users-guide.md) / [開発・検証](docs/developers-guide.md) / [抽出対応表](docs/migration.md) / [v0.1.2実装報告](dev/history/v0.1.2/v0.1.2-imp.md) / [v0.1.2公開後のレビュー修正](dev/history/v0.1.3/v0.1.3-imp.md)
 
 ## KotorinToys管理連携（2026-10-15追加）
 
-本体の一覧からの開発版起動・既存画面表示・状態確認・正常停止に対応しました。上記移植時点の未登録範囲を、この追加で更新します。配布・正式インストール・外部公開は未実施です。[管理連携と検証用起動](docs/kotorintoys-integration.md)を参照してください。
+本体の一覧からの開発版起動・既存画面表示・状態確認・正常停止に対応しました。上記移植時点の未登録範囲を、この追加で更新します。配布と正式インストールは2026-10-17のv0.1.2公開で対応しました（[導入と削除](docs/install.md)）。[管理連携と検証用起動](docs/kotorintoys-integration.md)を参照してください。

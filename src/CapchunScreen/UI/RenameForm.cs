@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-
 namespace CapchunScreen.UI;
 
 public sealed class RenameForm : BrandedForm
@@ -68,10 +66,10 @@ public sealed class RenameForm : BrandedForm
     private void ConfirmName()
     {
         string name = _name.Text.Trim();
-        if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name.EndsWith('.')
-            || Regex.IsMatch(name, @"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        // 閉じた後の改名処理と同じ規則で確認し、入力し直せる間に理由を伝える。
+        if (Storage.RecordingFiles.GetBaseNameError(name) is { } error)
         {
-            MessageBox.Show(this, "使用できるファイル名を入力してください。拡張子は変更せずに引き継ぎます。",
+            MessageBox.Show(this, $"{error}{Environment.NewLine}拡張子は変更せずに引き継ぎます。",
                 WindowTitle.Create("名前変更エラー"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _name.Focus();
             return;

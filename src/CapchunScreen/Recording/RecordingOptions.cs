@@ -12,4 +12,4 @@ public sealed record RecordingOptions
 }
 
 public sealed record RecordingResult(string VideoPath, string? TsvPath, long Frames, double DurationSeconds,
-    string? InterruptionReason = null, string? DiagnosticPath = null);
+    string? InterruptionReason = null, string? DiagnosticPath = null, string? InputWarning = null);

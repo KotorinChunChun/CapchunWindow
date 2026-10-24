@@ -137,14 +137,24 @@ public static class RecordingFiles
     private static void ValidateBaseName(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (GetBaseNameError(name) is { } error)
+            throw new ArgumentException(error, nameof(name));
+    }
+
+    /// <summary>改名に使えない名前なら理由を返す。名前変更画面も同じ規則で事前に確認する。</summary>
+    internal static string? GetBaseNameError(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "新しい名前を入力してください。";
         if (name != name.Trim() || name is "." or ".." || name.StartsWith('.') || name.EndsWith('.')
             || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || Path.GetFileName(name) != name || name.Length > 251)
-            throw new ArgumentException("拡張子を除く単純なファイル名を指定してください。末尾の空白・ピリオドやパスは使用できません。", nameof(name));
+            return "拡張子を除く単純なファイル名を指定してください。先頭のピリオド、末尾の空白・ピリオド、パス、251文字を超える名前は使用できません。";
         string stem = name.Split('.')[0].ToUpperInvariant();
         if (stem is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$"
             || stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal))
                 && "123456789¹²³".Contains(stem[3]))
-            throw new ArgumentException("Windows の予約された名前は使用できません。", nameof(name));
+            return "Windows の予約された名前は使用できません。";
+        return null;
     }
 
     private static void EnsureDestinationAvailable(string source, string destination)

@@ -41,7 +41,7 @@ internal sealed class ManagementEndpoint : IDisposable
                     deadline.CancelAfter(TimeSpan.FromSeconds(2));
                     using var reader = new StreamReader(pipe, leaveOpen: true);
                     using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
-                    var line = await reader.ReadLineAsync(deadline.Token) ?? "";
+                    var line = await ReadRequestLineAsync(reader, deadline.Token) ?? "";
                     string command = line, requestId = "";
                     int? expectedPid = null;
                     if (line.StartsWith("{"))
@@ -83,11 +83,12 @@ internal sealed class ManagementEndpoint : IDisposable
                     var uiReady = await applied.Task.WaitAsync(deadline.Token);
                     var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version;
                     var capabilities = shortcuts == null ? new[] { "status", "show", "stop" } : new[] { "status", "show", "stop", "shortcuts" };
+                    // 応答を読まないクライアントで受付が止まらないよう、書込みにも同じ期限を適用する。
                     await writer.WriteLineAsync(JsonSerializer.Serialize(new {
                         protocolVersion = 2, requestId, pid = Environment.ProcessId, ready = uiReady,
                         version = version == null ? null : $"{version.Major}.{version.Minor}.{version.Build}",
                         launchOrigin = LaunchOrigin, capabilities, result, detail, shortcuts = keyState
-                    }));
+                    }).AsMemory(), deadline.Token);
                     // 終了要求の受理を返してから、既存の正常終了へ渡す。完了はクライアントがプロセスで確認する。
                     if (stopAccepted && !dispatcher.IsDisposed) dispatcher.BeginInvoke(stop);
                 }
@@ -95,6 +96,22 @@ internal sealed class ManagementEndpoint : IDisposable
                 catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException or KeyNotFoundException) { }
             }
         });
+    }
+
+    // 要求は1行のJSON。大きな要求でメモリを使わせないよう、上限を超えたら応答せず切断する。
+    internal const int MaximumRequestCharacters = 4096;
+
+    internal static async Task<string?> ReadRequestLineAsync(TextReader reader, CancellationToken cancellationToken)
+    {
+        var line = new System.Text.StringBuilder();
+        var buffer = new char[1];
+        while (await reader.ReadAsync(buffer.AsMemory(), cancellationToken) > 0)
+        {
+            if (buffer[0] == '\n') return line.ToString().TrimEnd('\r');
+            if (line.Length >= MaximumRequestCharacters) throw new InvalidDataException("管理要求が長すぎます。");
+            line.Append(buffer[0]);
+        }
+        return line.Length == 0 ? null : line.ToString();
     }
 
     public static void ShowExisting(string id)

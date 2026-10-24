@@ -23,7 +23,11 @@ public static class FfmpegLocator
                 continue;
             try
             {
-                string candidate = Path.Combine(Environment.ExpandEnvironmentVariables(directory), "ffmpeg.exe");
+                string expanded = Environment.ExpandEnvironmentVariables(directory);
+                // 「.」などの相対項目は起動時のカレントフォルダーに置かれた別の ffmpeg.exe を拾うため除外する。
+                if (!Path.IsPathFullyQualified(expanded))
+                    continue;
+                string candidate = Path.Combine(expanded, "ffmpeg.exe");
                 if (File.Exists(candidate))
                     return Path.GetFullPath(candidate);
             }

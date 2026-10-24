@@ -1,3 +1,5 @@
+using System.Reflection;
+using CapchunScreen.Capture;
 using CapchunScreen.Input;
 using System.Drawing;
 
@@ -177,5 +179,82 @@ public static class InputTests
         check(monitorMouse.Click == "Wheel-Up" && monitorMouse.Keys == "None", "モニター録画の範囲内マウスはforeground中心によらず記録する");
         modifiedMouse.WheelMoved(true, 120, inside, 20);
         check(Read(modifiedMouse, foreground: 20).Click == "Wheel-Right", "専用窓のowned foregroundでマウスを記録する");
+
+        RunStaleKeys(check, bounds, inside, Matches);
+        RunHookSilence(check);
+    }
+
+    private static void RunStaleKeys(Action<bool, string> check, Rectangle bounds, Point inside, Func<nint, nint, bool> matches)
+    {
+        long now = 1_000;
+        var down = new HashSet<int>();
+        bool IsDown(int key) => down.Contains(key);
+        var buffer = new InputBuffer(clock: () => now);
+        InputSample Read() => buffer.Consume(bounds, inside, 10, 10, matches, IsDown);
+        void Tap(int key) { buffer.KeyChanged(key, true, 10); buffer.KeyChanged(key, false, 10); }
+
+        // Ctrlのキーアップを取りこぼし、実際には離されている状態。
+        buffer.KeyChanged(0xA2, true, 10);
+        now += InputBuffer.StaleKeyGraceMilliseconds - 1;
+        Tap(0x43);
+        check(Read().Keys == "Ctrl,C", "押下直後の修飾キーは非同期状態の更新前でも保持する");
+        now += 1;
+        check(Read().Keys == "None", "キーアップを取りこぼした修飾キーを実際の押下状態に合わせて解放する");
+        Tap(0x41);
+        check(Read().Keys == "None", "取りこぼした修飾キーで単独文字をショートカットとして記録しない");
+
+        down.Add(0x25);
+        buffer.KeyChanged(0x25, true, 10);
+        now += 1_000;
+        check(Read().Keys == "Left" && Read().Keys == "Left", "実際に押されているキーは時間が経っても保持する");
+        down.Remove(0x25);
+        check(Read().Keys == "None", "押下状態が消えたキーは次のフレームから記録しない");
+
+        var hotkey = new InputBuffer(clock: () => now);
+        hotkey.KeyChanged(0xA2, true, 10); hotkey.KeyChanged(0xA0, true, 10); hotkey.KeyChanged(0x78, true, 10);
+        hotkey.KeyChanged(0xA0, false, 10); hotkey.KeyChanged(0xA2, false, 10);
+        now += InputBuffer.StaleKeyGraceMilliseconds;
+        _ = hotkey.Consume(bounds, inside, 10, 10, matches, IsDown);
+        hotkey.KeyChanged(0x78, true, 10); hotkey.KeyChanged(0x78, false, 10);
+        check(hotkey.Consume(bounds, inside, 10, 10, matches, IsDown).Keys == "F9", "取りこぼしたF9の解放で録画ホットキーの抑止も解除する");
+    }
+
+    /// <summary>実フックを短時間だけ設置する。入力内容は検査せず、ファイルにも残さない。</summary>
+    public static void RunHookLifecycle(Action<bool, string> check, string output)
+    {
+        var guard = new DesktopAccessGuard(Path.Combine(output, "hook-diagnostics"));
+        if (!guard.Check(force: true).Available) { Console.WriteLine("SKIP 入力フックの開始・終了（デスクトップへアクセスできません）"); return; }
+        var monitor = new InputMonitor(false, null, guard);
+        var hookThread = (Thread)typeof(InputMonitor).GetField("_thread", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(monitor)!;
+        check(hookThread.IsAlive && hookThread.ManagedThreadId != Environment.CurrentManagedThreadId, "入力フックを呼出元とは別の専用スレッドで設置する");
+        Rectangle screen = Screen.PrimaryScreen!.Bounds;
+        bool consumed = Try(() => monitor.Consume(screen, 0));
+        check(consumed && monitor.Warning is null, "フック設置直後は再接続の警告を出さない");
+        monitor.RequestReinstall();
+        Thread.Sleep(200);
+        check(Try(() => monitor.Consume(screen, 0)) && monitor.Reconnects == 1 && monitor.Warning is { Length: > 0 },
+            "フックを再設置しても記録を続け、録画後の警告を用意する");
+        Exception? disposeError = null;
+        var other = new Thread(() => { try { monitor.Dispose(); } catch (Exception error) { disposeError = error; } });
+        other.Start(); other.Join();
+        check(disposeError is null && !hookThread.IsAlive, "別スレッドからの終了でもフックを解除して専用スレッドを終える");
+        check(!Try(() => monitor.Consume(screen, 0)), "終了後の入力取得を拒否する");
+        monitor.Dispose();
+    }
+
+    private static bool Try(Action action)
+    {
+        try { action(); return true; }
+        catch (Exception) { return false; }
+    }
+
+    private static void RunHookSilence(Action<bool, string> check)
+    {
+        const int limit = InputMonitor.HookSilenceMilliseconds;
+        check(!InputMonitor.IsHookSilent(10_000 + limit - 1, 10_000), "フックの無受信が判定時間未満なら再設置しない");
+        check(InputMonitor.IsHookSilent(10_000 + limit, 10_000), "システム入力が続いてフックが無受信なら再設置する");
+        check(!InputMonitor.IsHookSilent(9_000, 10_000), "フックの受信がシステム入力より新しければ再設置しない");
+        check(!InputMonitor.IsHookSilent(100, uint.MaxValue - 100) && InputMonitor.IsHookSilent(limit, uint.MaxValue),
+            "GetTickCountの一周をまたいでも無受信時間を正しく比べる");
     }
 }

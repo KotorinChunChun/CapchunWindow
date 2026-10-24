@@ -4,11 +4,16 @@ namespace CapchunScreen.Input;
 internal enum InputModifiers { None = 0, Control = 1, Shift = 2, Alt = 4, Windows = 8 }
 
 /// <summary>フレーム間の短い入力を保持し、消費後も押下中の入力を扱う。</summary>
-internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictionary<string, bool>? recordOverrides = null)
+internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictionary<string, bool>? recordOverrides = null,
+    Func<long>? clock = null)
 {
     private const int RecordingHotkeyKey = 0x78;
+    // フック処理中はOSの非同期キー状態がまだ更新されていないため、直前の押下は照合から外す。
+    internal const long StaleKeyGraceMilliseconds = 250;
     private readonly object _gate = new();
-    private readonly HashSet<int> _heldKeys = [];
+    private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
+    // キー → 最後に押下（自動リピートを含む）を受けた時刻。
+    private readonly Dictionary<int, long> _heldKeys = [];
     private readonly Dictionary<(int Key, InputModifiers Modifiers), KeyStroke> _pendingKeys = [];
     private readonly Dictionary<string, MouseStroke> _pendingMouse = [];
     private readonly HashSet<string> _heldMouse = [];
@@ -24,14 +29,13 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
         {
             if (!pressed)
             {
-                _heldKeys.Remove(key);
-                if (key == RecordingHotkeyKey) _suppressRecordingHotkey = false;
+                ReleaseKey(key);
                 return;
             }
 
-            _heldKeys.Add(key);
+            _heldKeys[key] = _clock();
             var modifiers = GetModifiers();
-            if (!_suppressRecordingHotkey && _heldKeys.Contains(RecordingHotkeyKey)
+            if (!_suppressRecordingHotkey && _heldKeys.ContainsKey(RecordingHotkeyKey)
                 && modifiers.HasFlag(InputModifiers.Control | InputModifiers.Shift))
             {
                 // 修飾キーを先に離しても、同じ押下と自動リピートはキーアップまで除外する。
@@ -75,11 +79,29 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
     private void AddMouseStroke(string action, Point position, nint foreground) =>
         _pendingMouse[action] = new(action, position, GetModifiers(), foreground, ++_mouseSequence);
 
+    private void ReleaseKey(int key)
+    {
+        _heldKeys.Remove(key);
+        if (key == RecordingHotkeyKey) _suppressRecordingHotkey = false;
+    }
+
+    /// <summary>
+    /// キーアップを取りこぼしたキーを、実際の押下状態に合わせて解放する。
+    /// 修飾キーが残ると以降の通常文字がショートカットとして記録されるため、毎フレーム照合する。
+    /// </summary>
+    private void ReleaseStaleKeys(Func<int, bool> keyIsDown)
+    {
+        long now = _clock();
+        foreach (var (key, pressedAt) in _heldKeys.ToArray())
+            if (now - pressedAt >= StaleKeyGraceMilliseconds && !keyIsDown(key)) ReleaseKey(key);
+    }
+
     internal InputSample Consume(Rectangle bounds, Point currentPosition, nint foreground, nint targetWindow,
-        Func<nint, nint, bool> foregroundMatches)
+        Func<nint, nint, bool> foregroundMatches, Func<int, bool>? keyIsDown = null)
     {
         lock (_gate)
         {
+            if (keyIsDown is not null) ReleaseStaleKeys(keyIsDown);
             bool AcceptForeground(nint window) => foregroundMatches(window, targetWindow);
             var keyNames = new HashSet<string>(StringComparer.Ordinal);
             InputModifiers modifiers = InputModifiers.None;
@@ -94,7 +116,7 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
 
             foreach (var stroke in _pendingKeys.Values) AddKey(stroke);
             var heldModifiers = GetModifiers();
-            foreach (int key in _heldKeys)
+            foreach (int key in _heldKeys.Keys)
                 if (!IsModifier(key)) AddKey(new(key, heldModifiers, foreground));
 
             var actions = new HashSet<string>(StringComparer.Ordinal);
@@ -137,12 +159,14 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
     private InputModifiers GetModifiers()
     {
         InputModifiers value = InputModifiers.None;
-        if (_heldKeys.Overlaps([0x11, 0xA2, 0xA3])) value |= InputModifiers.Control;
-        if (_heldKeys.Overlaps([0x10, 0xA0, 0xA1])) value |= InputModifiers.Shift;
-        if (_heldKeys.Overlaps([0x12, 0xA4, 0xA5])) value |= InputModifiers.Alt;
-        if (_heldKeys.Overlaps([0x5B, 0x5C])) value |= InputModifiers.Windows;
+        if (HeldAny(0x11, 0xA2, 0xA3)) value |= InputModifiers.Control;
+        if (HeldAny(0x10, 0xA0, 0xA1)) value |= InputModifiers.Shift;
+        if (HeldAny(0x12, 0xA4, 0xA5)) value |= InputModifiers.Alt;
+        if (HeldAny(0x5B, 0x5C)) value |= InputModifiers.Windows;
         return value;
     }
+
+    private bool HeldAny(params int[] keys) => keys.Any(_heldKeys.ContainsKey);
 
     internal string Describe(string action)
     {

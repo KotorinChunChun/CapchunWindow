@@ -41,6 +41,13 @@ internal static class PreviewSelectionTests
         Until(() => Volatile.Read(ref probe.Active) == 0);
         check(Field<PictureBox>(form, "picture").Image is null && Volatile.Read(ref probe.Active) == 0,
             "対象がなくなったら取得と旧映像を回収する");
+        var filterTimer = Field<System.Windows.Forms.Timer>(form, "filterTimer");
+        var filter = Field<TextBox>(form, "filter");
+        int startedBeforeTyping = probe.Started.Count;
+        foreach (string text in new[] { "f", "fi", "fil" }) filter.Text = text;
+        check(filterTimer.Enabled && probe.Started.Count == startedBeforeTyping, "検索欄の入力中は対象の再取得とプレビューの作り直しを待つ");
+        typeof(MainForm).GetMethod("RefreshTargets", Private)!.Invoke(form, null);
+        check(!filterTimer.Enabled, "対象を取得し直したら待機中の検索更新を取り消す");
         check(!form.Visible, "自動取得の回帰テストは合成映像だけを使い本体を表示しない");
     }
 

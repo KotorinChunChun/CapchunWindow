@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CapchunScreen.Recording;
 using CapchunScreen.Storage;
 
 namespace CapchunScreen.Tests;
@@ -105,6 +106,38 @@ internal static class StorageTests
         string remainingTsv = Path.ChangeExtension(upperCase, ".tsv");
         check(recycleFailure is not null && recycleFailure.Message.Contains(remainingTsv, StringComparison.Ordinal)
             && !File.Exists(upperCase) && File.Exists(remainingTsv), "ごみ箱処理の途中失敗を残件ファイル付きで通知（API を模擬）");
+
+        check(RecordingFiles.GetBaseNameError("改名後") is null, "名前変更画面の事前確認は通常の名前を通す");
+        foreach (string invalid in new[] { ".先頭ピリオド", new string('長', 252), "CON", "末尾.", "" })
+            check(RecordingFiles.GetBaseNameError(invalid) is { Length: > 0 }, "名前変更画面の事前確認は改名処理と同じ不正名を拒否する");
+
+        RunFfmpegLocator(check, Path.Combine(directory, "ffmpeg-locator"));
+    }
+
+    private static void RunFfmpegLocator(Action<bool, string> check, string root)
+    {
+        // このテストプロセスのPATHとカレントフォルダーだけを一時的に変える。PCの環境変数は変更しない。
+        string current = Path.Combine(root, "current");
+        string installed = Path.Combine(root, "installed");
+        Directory.CreateDirectory(current); Directory.CreateDirectory(installed);
+        File.WriteAllText(Path.Combine(current, "ffmpeg.exe"), "");
+        File.WriteAllText(Path.Combine(installed, "ffmpeg.exe"), "");
+        string? path = Environment.GetEnvironmentVariable("PATH");
+        string directory = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = current;
+            Environment.SetEnvironmentVariable("PATH", ".;current");
+            check(FfmpegLocator.Find() is null, "PATHの相対項目からカレントフォルダーのFFmpegを拾わない");
+            Environment.SetEnvironmentVariable("PATH", $".;{installed}");
+            check(string.Equals(FfmpegLocator.Find(), Path.Combine(installed, "ffmpeg.exe"), StringComparison.OrdinalIgnoreCase),
+                "PATHの絶対パス項目からはFFmpegを見つける");
+        }
+        finally
+        {
+            Environment.CurrentDirectory = directory;
+            Environment.SetEnvironmentVariable("PATH", path);
+        }
     }
 
     private static bool Throws<T>(Action action) where T : Exception

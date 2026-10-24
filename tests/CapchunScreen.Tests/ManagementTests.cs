@@ -31,4 +31,17 @@ internal static class ManagementTests
         if (failure is not null) throw new Exception("管理停止のガード検証に失敗しました。", failure);
         Console.WriteLine("PASS 管理連携: 待機時の停止許可・3状態の停止拒否・画面非表示");
     }
+
+    public static void RunRequestLimit(Action<bool, string> check)
+    {
+        static string? Read(string text) => KotorinToys.Integration.ManagementEndpoint.ReadRequestLineAsync(new StringReader(text), CancellationToken.None).GetAwaiter().GetResult();
+        check(Read("{\"command\":\"status\"}\r\nextra") == "{\"command\":\"status\"}", "管理要求の1行目だけを改行コードを除いて読む");
+        check(Read("") is null && Read("status") == "status", "改行のない管理要求も上限内なら読む");
+        int limit = KotorinToys.Integration.ManagementEndpoint.MaximumRequestCharacters;
+        check(Read(new string('a', limit) + "\n")?.Length == limit, "上限ちょうどの管理要求は受け付ける");
+        bool rejected = false;
+        try { Read(new string('a', limit + 1) + "\n"); }
+        catch (InvalidDataException) { rejected = true; }
+        check(rejected, "上限を超える管理要求は全体を読まずに拒否する");
+    }
 }

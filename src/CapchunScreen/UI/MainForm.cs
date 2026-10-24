@@ -39,6 +39,8 @@ internal sealed partial class MainForm : BrandedForm
     private readonly ListView files = new() { View = View.Details, FullRowSelect = true, MultiSelect = true, HideSelection = false, Dock = DockStyle.Fill, AccessibleName = "録画ファイル一覧" };
     private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
     private readonly System.Windows.Forms.Timer frameTimer = new() { Interval = 50 };
+    // 検索欄の入力が止まってから、対象一覧の取得とプレビューの作り直しを1回だけ行う。
+    private readonly System.Windows.Forms.Timer filterTimer = new() { Interval = 300 };
     private readonly Stopwatch recordingClock = new();
     private readonly List<Control> recordingOptions = [];
     private CancellationTokenSource? recordingCancellation;
@@ -197,7 +199,8 @@ internal sealed partial class MainForm : BrandedForm
     private void WireEvents()
     {
         kind.SelectedIndexChanged += async (_, _) => { exclusive.Enabled = kind.SelectedIndex == 0; RefreshTargets(); await RestartPreviewAsync(); };
-        filter.TextChanged += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
+        filter.TextChanged += (_, _) => { filterTimer.Stop(); filterTimer.Start(); };
+        filterTimer.Tick += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
         target.SelectedIndexChanged += async (_, _) => { if (!refreshingTargets) await RestartPreviewAsync(); };
         exclusive.CheckedChanged += async (_, _) => await RestartPreviewAsync();
         refreshButton.Click += async (_, _) => { RefreshTargets(); await RestartPreviewAsync(); };
@@ -257,6 +260,8 @@ internal sealed partial class MainForm : BrandedForm
 
     private void RefreshTargets()
     {
+        // 現在の検索文字で取得するため、待機中の遅延更新は不要になる。
+        filterTimer.Stop();
         refreshingTargets = true;
         try
         {
@@ -407,6 +412,11 @@ internal sealed partial class MainForm : BrandedForm
                 status.Text = $"録画中断：{result.DurationSeconds:F1}秒まで保存しました。{result.InterruptionReason}";
                 optionHelp.SetToolTip(status, status.Text + Environment.NewLine + "診断ログ: " + (result.DiagnosticPath ?? desktopAccess.DiagnosticWriteError));
             }
+            if (result.InputWarning is { } inputWarning)
+            {
+                status.Text += $"  注意：{inputWarning}";
+                optionHelp.SetToolTip(status, status.Text);
+            }
             RefreshFiles(result.VideoPath);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { status.Text = "録画開始を中止しました。"; }
@@ -544,7 +554,7 @@ internal sealed partial class MainForm : BrandedForm
             closing = true;
             previewRevision++;
             previewCancellation?.Cancel();
-            frameTimer.Stop(); frameTimer.Dispose();
+            frameTimer.Stop(); frameTimer.Dispose(); filterTimer.Dispose();
             optionHelp.Dispose();
             desktopTimer.Dispose();
             DisposeExtras();

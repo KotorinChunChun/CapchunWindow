@@ -196,7 +196,7 @@ public sealed class RecordingSession
             }
             File.Move(partialVideo, video, overwrite: false);
             return new RecordingResult(video, tsv, frames, frames / (double)options.FramesPerSecond,
-                interruption?.Message, interruption?.DiagnosticPath);
+                interruption?.Message, interruption?.DiagnosticPath, options.RecordInput ? (input as IInputHealth)?.Warning : null);
         }
         catch
         {
@@ -235,19 +235,19 @@ public sealed class RecordingSession
         return new Size(width, height);
     }
 
-    private static void CopyFrame(Bitmap source, Bitmap canvas, byte[] bytes)
+    internal static void CopyFrame(Bitmap source, Bitmap canvas, byte[] bytes)
     {
         using (Graphics graphics = Graphics.FromImage(canvas))
         {
             graphics.Clear(Color.Black);
             graphics.CompositingMode = CompositingMode.SourceCopy;
-            if (source.Size == canvas.Size)
+            Rectangle destination = GetDestinationRectangle(source.Size, canvas.Size);
+            if (destination.Size == source.Size)
             {
-                graphics.DrawImageUnscaled(source, 0, 0);
+                graphics.DrawImageUnscaled(source, destination.X, destination.Y);
             }
             else
             {
-                Rectangle destination = GetDestinationRectangle(source.Size, canvas.Size);
                 graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
                 graphics.DrawImage(source, destination, 0, 0, source.Width, source.Height, GraphicsUnit.Pixel);
             }
@@ -267,6 +267,10 @@ public sealed class RecordingSession
 
     internal static Rectangle GetDestinationRectangle(Size source, Size output)
     {
+        // 偶数化で足した1px以内の余白は右・下へ置き、等倍のまま再サンプリングしない。
+        int padWidth = output.Width - source.Width, padHeight = output.Height - source.Height;
+        if (padWidth is 0 or 1 && padHeight is 0 or 1)
+            return new Rectangle(Point.Empty, source);
         double scale = Math.Min(output.Width / (double)source.Width, output.Height / (double)source.Height);
         int width = Math.Max(1, (int)Math.Round(source.Width * scale));
         int height = Math.Max(1, (int)Math.Round(source.Height * scale));

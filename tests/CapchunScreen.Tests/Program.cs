@@ -24,11 +24,14 @@ internal static class Program
             InputTests.Run(Check);
             StorageTests.Run(Check, output);
             DesktopAccessTests.Run(Check, output);
+            ManagementTests.RunRequestLimit(Check);
+            InputTests.RunHookLifecycle(Check, output);
             var initialContext = SynchronizationContext.Current;
             try { UiTests.Run(Check, output); PreviewTests.Run(Check); PlaybackTests.Run(Check); InputSettingsTests.Run(Check, output); ThumbnailTests.Run(Check); DesktopAccessTests.RunUi(Check, output); }
             finally { SynchronizationContext.SetSynchronizationContext(initialContext); }
             var mapped = RecordingSession.MapInputToOutput(new InputSample(20, 30, "L-Click", "Ctrl,C"), new Size(100, 100), new Size(100, 100), new Size(200, 100));
             Check(mapped.X == 70 && mapped.Y == 30, "リサイズ時のTSV座標を余白と縮尺へ合わせる");
+            OddSizeTests();
             var ffmpeg = Argument(args, "--ffmpeg");
             if (ffmpeg is not null)
             {
@@ -113,6 +116,33 @@ internal static class Program
             catch (ArgumentException) { rejected = true; }
             Check(rejected, "範囲外の録画設定を開始前に拒否");
         }
+    }
+
+    private static void OddSizeTests()
+    {
+        Check(RecordingSession.GetDestinationRectangle(new Size(321, 241), new Size(322, 242)) == new Rectangle(0, 0, 321, 241),
+            "幅・高さとも奇数の取得は拡大せず等倍で左上へ置く");
+        Check(RecordingSession.GetDestinationRectangle(new Size(320, 241), new Size(320, 242)) == new Rectangle(0, 0, 320, 241),
+            "片方だけ奇数の取得も等倍で置く");
+        var odd = RecordingSession.MapInputToOutput(new InputSample(20, 30, "L-Click", "None"), new Size(321, 241), new Size(321, 241), new Size(322, 242));
+        Check(odd.X == 20 && odd.Y == 30, "奇数寸法の偶数化でTSV座標を変えない");
+
+        using var source = new Bitmap(3, 3, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        for (int y = 0; y < 3; y++)
+            for (int x = 0; x < 3; x++)
+                source.SetPixel(x, y, Color.FromArgb(255, x * 80, y * 80, (x + y) % 2 == 0 ? 255 : 0));
+        using var canvas = new Bitmap(4, 4, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var bytes = new byte[4 * 4 * 4];
+        RecordingSession.CopyFrame(source, canvas, bytes);
+        bool exact = true;
+        for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++)
+            {
+                Color expected = x < 3 && y < 3 ? source.GetPixel(x, y) : Color.FromArgb(255, 0, 0, 0);
+                int offset = (y * 4 + x) * 4;
+                exact &= bytes[offset] == expected.B && bytes[offset + 1] == expected.G && bytes[offset + 2] == expected.R && bytes[offset + 3] == expected.A;
+            }
+        Check(exact, "奇数寸法の画素を再サンプリングせずそのまま送り、余白を黒にする");
     }
 
     private static async Task Decode(string executable, string path)

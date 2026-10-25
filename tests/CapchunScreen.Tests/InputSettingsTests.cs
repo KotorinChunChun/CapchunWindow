@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Windows.Automation;
 using CapchunScreen.Input;
 using CapchunScreen.Storage;
 using CapchunScreen.UI;
@@ -66,12 +67,66 @@ internal static class InputSettingsTests
             check(ReferenceEquals(dialog.Settings, original), "保存前の変更・キャンセルは元の設定を変更しない");
             check(!dialog.Visible && !dialog.Testing, "操作記録画面の生成だけでは表示・入力監視を開始しない");
         }
+        RunAccessibility(check);
         var store = new SettingsStore(Path.Combine(directory, "設定")); store.Save(original);
         var loaded = store.Load(out var warning);
         check(warning is null && loaded.InputRecordOverrides!["A"] && !loaded.InputRecordOverrides["Ctrl+C"]
             && loaded.InputDescriptions!["アプリ"]["Ctrl+V"] == "貼り付け", "操作ごとの設定とアプリ説明を保存・再読込できる");
         check(InputShortcutCatalog.All.Select(item => item.Combination).Distinct().Count() == InputShortcutCatalog.All.Count,
             "操作一覧にはキーの組み合わせの重複がない");
+    }
+
+    /// <summary>約1,900行の一覧が、表示中の行だけを支援ツールへ公開し、探索で画面を止めないことを検査する。</summary>
+    private static void RunAccessibility(Action<bool, string> check)
+    {
+        InputSettingsForm? form = null;
+        Exception? failure = null;
+        using var ready = new ManualResetEventSlim();
+        var ui = new Thread(() =>
+        {
+            try
+            {
+                // UI Automationは表示中の画面だけを辿るため、透明にして表示する。
+                form = new InputSettingsForm(new AppSettings()) { Opacity = 0, ShowInTaskbar = false };
+                form.Shown += (_, _) => ready.Set();
+                Application.Run(form);
+            }
+            catch (Exception error) { failure = error; ready.Set(); }
+        });
+        ui.SetApartmentState(ApartmentState.STA);
+        ui.Start();
+        if (!ready.Wait(TimeSpan.FromSeconds(10)) || failure is not null || form is null)
+        { check(false, "一覧の支援ツール検査用の画面を開けない: " + failure?.Message); return; }
+        try
+        {
+            var grid = Descendants(form).OfType<DisplayedRowsDataGridView>().Single();
+            (int Children, int Displayed, int Rows, AccessibleObject? First, string?[] Chain) Shape() => ((int, int, int, AccessibleObject?, string?[]))form.Invoke(() =>
+            {
+                var accessible = grid.AccessibilityObject;
+                List<string?> chain = [];
+                for (var item = accessible.GetChild(0); item is not null && chain.Count < 100; item = item.Navigate(AccessibleNavigation.Next)) chain.Add(item.Name);
+                return (accessible.GetChildCount(), grid.DisplayedRows.Count, grid.RowCount, accessible.GetChild(1), chain.ToArray());
+            });
+            var top = Shape();
+            check(top.Rows > 1000 && top.Displayed is > 0 and < 100 && top.Children <= top.Displayed + 3,
+                "約1,900行の一覧でも、見出し・表示中の行・スクロールバーだけを公開する");
+            check(top.Chain.Length == top.Displayed + 1, "一覧の子要素を順にたどると表示中の最後の行で終わり、循環しない");
+            form.Invoke(() => grid.FirstDisplayedScrollingRowIndex = 1000);
+            var scrolled = Shape();
+            check(form.Invoke(() => grid.Rows[1000].AccessibilityObject) == scrolled.First
+                && scrolled.Chain.Length == scrolled.Displayed + 1, "スクロールすると公開する行が表示中の行へ入れ替わる");
+
+            var root = AutomationElement.FromHandle((nint)form.Invoke(() => form.Handle));
+            var search = Task.Run(() => root.FindFirst(TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.NameProperty, "検出された入力")) is not null);
+            bool found = search.Wait(TimeSpan.FromSeconds(10)) && search.Result;
+            check(found, "支援ツールが画面全体を名前で探索しても10秒以内に応答する（修正前は約60秒）");
+        }
+        finally
+        {
+            form.Invoke(form.Close);
+            ui.Join(TimeSpan.FromSeconds(10));
+        }
     }
 
     private static IEnumerable<Control> Descendants(Control root)

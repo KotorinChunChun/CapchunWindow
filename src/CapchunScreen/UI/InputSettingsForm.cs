@@ -17,7 +17,8 @@ internal sealed class InputSettingsForm : BrandedForm
     private readonly CheckBox describedOnly = new() { Text = "説明がある操作のみ", AutoSize = true };
     private readonly List<(CheckBox Box, InputModifiers Modifier)> modifiers = [];
     private readonly CheckBox noModifier = new() { Text = "修飾なし", AutoSize = true };
-    private readonly DataGridView grid = new()
+    // 約1,900行あるため、支援ツールの探索で応答しなくならないよう表示中の行だけを公開する一覧を使う。
+    private readonly DataGridView grid = new DisplayedRowsDataGridView
     {
         Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
         RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = true,

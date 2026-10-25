@@ -12,18 +12,20 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
     internal const long StaleKeyGraceMilliseconds = 250;
     private readonly object _gate = new();
     private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
-    // キー → 最後に押下（自動リピートを含む）を受けた時刻。
-    private readonly Dictionary<int, long> _heldKeys = [];
+    // キー → 最後に押下（自動リピートを含む）を受けた時刻と観測順の連番。
+    private readonly Dictionary<int, (long Time, long Sequence)> _heldKeys = [];
     private readonly Dictionary<(int Key, InputModifiers Modifiers), KeyStroke> _pendingKeys = [];
     private readonly Dictionary<string, MouseStroke> _pendingMouse = [];
     private readonly HashSet<string> _heldMouse = [];
     private bool _suppressRecordingHotkey;
+    private bool _droppedProtectedKeys;
     private long _mouseSequence;
 
-    private sealed record KeyStroke(int Key, InputModifiers Modifiers, nint Foreground);
+    private sealed record KeyStroke(int Key, InputModifiers Modifiers, nint Foreground, long Sequence = 0, long Time = 0);
     private sealed record MouseStroke(string Action, Point Position, InputModifiers Modifiers, nint Foreground, long Sequence);
 
-    internal void KeyChanged(int key, bool pressed, nint foreground)
+    /// <param name="sequence">パスワード入力の判定に使う観測順の連番。判定しない場合は0。</param>
+    internal void KeyChanged(int key, bool pressed, nint foreground, long sequence = 0)
     {
         lock (_gate)
         {
@@ -33,7 +35,8 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
                 return;
             }
 
-            _heldKeys[key] = _clock();
+            long now = _clock();
+            _heldKeys[key] = (now, sequence);
             var modifiers = GetModifiers();
             if (!_suppressRecordingHotkey && _heldKeys.ContainsKey(RecordingHotkeyKey)
                 && modifiers.HasFlag(InputModifiers.Control | InputModifiers.Shift))
@@ -45,9 +48,38 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
             }
             if (IsModifier(key)) return;
             if (IsAcceptedKey(key, modifiers))
-                _pendingKeys[(key, modifiers)] = new(key, modifiers, foreground);
+                _pendingKeys[(key, modifiers)] = new(key, modifiers, foreground, sequence, now);
         }
     }
+
+    /// <summary>
+    /// フォーカスを動かし得るキーか。修飾なしの文字・数字とShiftだけの文字入力は入力欄の中の操作として扱い、
+    /// Tab・Enter・Escなどの非文字キーと、Ctrl・Alt・Win付きのキーを区切りにする。
+    /// </summary>
+    internal bool IsFocusBoundary(int key)
+    {
+        if (IsModifier(key)) return false;
+        lock (_gate)
+            return !IsPlainKey(key) || (GetModifiers() & (InputModifiers.Control | InputModifiers.Alt | InputModifiers.Windows)) != 0;
+    }
+
+    /// <summary>記録の可否がまだ決まっていないキーのうち、最も新しい観測順の連番。</summary>
+    internal long? LatestUnresolvedKeySequence
+    {
+        get
+        {
+            lock (_gate)
+            {
+                long latest = 0;
+                foreach (var stroke in _pendingKeys.Values) latest = Math.Max(latest, stroke.Sequence);
+                foreach (var (key, held) in _heldKeys) if (!IsModifier(key)) latest = Math.Max(latest, held.Sequence);
+                return latest == 0 ? null : latest;
+            }
+        }
+    }
+
+    /// <summary>パスワード入力中または判定不能として、キー操作を記録しなかったことがあるか。</summary>
+    internal bool DroppedProtectedKeys { get { lock (_gate) return _droppedProtectedKeys; } }
 
     internal void MouseButtonChanged(string action, bool pressed, Point position, nint foreground)
     {
@@ -92,12 +124,16 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
     private void ReleaseStaleKeys(Func<int, bool> keyIsDown)
     {
         long now = _clock();
-        foreach (var (key, pressedAt) in _heldKeys.ToArray())
-            if (now - pressedAt >= StaleKeyGraceMilliseconds && !keyIsDown(key)) ReleaseKey(key);
+        foreach (var (key, held) in _heldKeys.ToArray())
+            if (now - held.Time >= StaleKeyGraceMilliseconds && !keyIsDown(key)) ReleaseKey(key);
     }
 
+    /// <param name="classify">
+    /// キーの連番と時刻からパスワード入力中かを返す。保留のキーは次のフレームまで残し、保護中のキーは記録せずに破棄する。
+    /// </param>
     internal InputSample Consume(Rectangle bounds, Point currentPosition, nint foreground, nint targetWindow,
-        Func<nint, nint, bool> foregroundMatches, Func<int, bool>? keyIsDown = null)
+        Func<nint, nint, bool> foregroundMatches, Func<int, bool>? keyIsDown = null,
+        Func<long, long, InputProtectionVerdict>? classify = null)
     {
         lock (_gate)
         {
@@ -105,6 +141,12 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
             bool AcceptForeground(nint window) => foregroundMatches(window, targetWindow);
             var keyNames = new HashSet<string>(StringComparer.Ordinal);
             InputModifiers modifiers = InputModifiers.None;
+            InputProtectionVerdict Verdict(long sequence, long time)
+            {
+                var verdict = classify?.Invoke(sequence, time) ?? InputProtectionVerdict.Allowed;
+                if (verdict == InputProtectionVerdict.Protected) _droppedProtectedKeys = true;
+                return verdict;
+            }
             void AddKey(KeyStroke stroke)
             {
                 if (!AcceptForeground(stroke.Foreground) || !IsAcceptedKey(stroke.Key, stroke.Modifiers)) return;
@@ -114,10 +156,20 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
                 modifiers |= stroke.Modifiers;
             }
 
-            foreach (var stroke in _pendingKeys.Values) AddKey(stroke);
+            foreach (var (slot, stroke) in _pendingKeys.ToArray())
+            {
+                // 録画対象の外で押したキーは記録しないため、保護判定にもかけずに捨てる。
+                if (!AcceptForeground(stroke.Foreground)) { _pendingKeys.Remove(slot); continue; }
+                var verdict = Verdict(stroke.Sequence, stroke.Time);
+                if (verdict == InputProtectionVerdict.Pending) continue;
+                // 記録しないキーは名前も保持し続けず、この場で捨てる。
+                _pendingKeys.Remove(slot);
+                if (verdict == InputProtectionVerdict.Allowed) AddKey(stroke);
+            }
             var heldModifiers = GetModifiers();
-            foreach (int key in _heldKeys.Keys)
-                if (!IsModifier(key)) AddKey(new(key, heldModifiers, foreground));
+            foreach (var (key, held) in _heldKeys)
+                if (!IsModifier(key) && AcceptForeground(foreground) && Verdict(held.Sequence, held.Time) == InputProtectionVerdict.Allowed)
+                    AddKey(new(key, heldModifiers, foreground));
 
             var actions = new HashSet<string>(StringComparer.Ordinal);
             Point position = currentPosition;
@@ -141,7 +193,6 @@ internal sealed class InputBuffer(bool includePlainKeys = false, IReadOnlyDictio
                 if (acceptedMouse && AcceptForeground(foreground)) modifiers |= heldModifiers;
             }
 
-            _pendingKeys.Clear();
             _pendingMouse.Clear();
             List<string> keys = [];
             if (modifiers.HasFlag(InputModifiers.Control)) keys.Add("Ctrl");

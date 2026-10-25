@@ -22,6 +22,7 @@ internal static class Program
             Directory.CreateDirectory(output);
             ManagementTests.Run(Path.Combine(output, "management-settings"));
             InputTests.Run(Check);
+            InputProtectionTests.Run(Check);
             StorageTests.Run(Check, output);
             DesktopAccessTests.Run(Check, output);
             ManagementTests.RunRequestLimit(Check);

@@ -4,6 +4,8 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <WindowsSdkPackageVersion>10.0.19041.57</WindowsSdkPackageVersion>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- UI Automation（System.Windows.Automation）でパスワード入力欄を判定するために参照する。WPFの画面は使わない。 -->
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -21,5 +23,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><InternalsVisibleTo Include="CapchunScreen.Tests" /></ItemGroup>
+  <!-- UseWPFは暗黙のSystem.IOを外すため、WinFormsだけの時と同じ名前空間を明示する。 -->
+  <ItemGroup><Using Include="System.IO" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="assets/CapchunScreen.ico" LogicalName="CapchunScreen.AppIcon.ico" /></ItemGroup>
 </Project>

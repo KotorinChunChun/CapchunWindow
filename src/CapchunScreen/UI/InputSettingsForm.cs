@@ -30,7 +30,6 @@ internal sealed class InputSettingsForm : BrandedForm
     private readonly ToolTip help = new() { AutoPopDelay = 15000 };
     private List<InputShortcut> visible = [];
     private InputMonitor? monitor;
-    private string? latestInput;
     internal AppSettings Settings { get; private set; }
     internal bool Testing => monitor is not null;
 
@@ -107,7 +106,8 @@ internal sealed class InputSettingsForm : BrandedForm
         {
             if (!this.desktopAccess.Check().Available)
             { StopTest(); message.Text = DesktopAccessGuard.UnavailableMessage; return; }
-            if (Volatile.Read(ref latestInput) is { } value) detected.Text = value;
+            // パスワード入力中のキーは名前を受け取らず、保護中の表示だけを出す。
+            if (monitor?.TakeDetectedInput() is { } value) detected.Text = value;
         };
         FormClosing += (_, _) => StopTest(); RefreshRows();
     }
@@ -176,9 +176,8 @@ internal sealed class InputSettingsForm : BrandedForm
     internal void ToggleTest()
     {
         if (monitor is not null) { StopTest(); return; }
-        Volatile.Write(ref latestInput, null); detected.Text = "";
+        detected.Text = "";
         monitor = new InputMonitor(true, null, desktopAccess);
-        monitor.InputDetected += value => Volatile.Write(ref latestInput, value);
         testTimer.Start(); testButton.Text = "入力テスト停止";
     }
     private void StopTest()

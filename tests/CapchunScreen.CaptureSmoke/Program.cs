@@ -10,14 +10,14 @@ internal static class Program
     {
         if (args.Length != 1)
         {
-            Console.Error.WriteLine("使用方法: CapchunScreen.CaptureSmoke.exe <証跡フォルダー> または --scene");
+            Console.Error.WriteLine("使用方法: CapchunScreen.CaptureSmoke.exe <証跡フォルダー>、--scene または --password-scene");
             return 2;
         }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
-        if (args[0] == "--scene")
+        if (args[0] is "--scene" or "--password-scene")
         {
-            using var scene = new SceneForm();
+            using var scene = new SceneForm(password: args[0] == "--password-scene");
             Application.Run(scene);
             return 0;
         }

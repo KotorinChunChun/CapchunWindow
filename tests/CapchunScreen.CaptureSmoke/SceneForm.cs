@@ -13,11 +13,12 @@ internal sealed class SceneForm : Form
     private int count;
     private int keyCount;
 
-    internal SceneForm()
+    /// <param name="password">入力欄をパスワード欄にし、パスワード入力を記録しないことの確認に使う。</param>
+    internal SceneForm(bool password = false)
     {
-        Text = "録画テスト用シーン - CapchunScreen - ver 0.1.0";
-        Name = "RecordingTestScene";
-        AccessibleName = "録画テスト用シーン";
+        Text = password ? "パスワード入力テスト用シーン - CapchunScreen - ver 0.1.0" : "録画テスト用シーン - CapchunScreen - ver 0.1.0";
+        Name = password ? "PasswordTestScene" : "RecordingTestScene";
+        AccessibleName = password ? "パスワード入力テスト用シーン" : "録画テスト用シーン";
         ClientSize = new Size(420, 300);
         MinimumSize = new Size(340, 300);
         StartPosition = FormStartPosition.Manual;
@@ -55,16 +56,19 @@ internal sealed class SceneForm : Form
 
         var textInput = new TextBox
         {
-            Name = "TestTextInput", AccessibleName = "テスト文字入力", PlaceholderText = "テスト文字だけを入力",
-            Dock = DockStyle.Fill, MaxLength = 120
+            Name = password ? "TestPasswordInput" : "TestTextInput", AccessibleName = password ? "テスト用パスワード入力" : "テスト文字入力",
+            PlaceholderText = password ? "テスト用の文字だけを入力（実際のパスワードは入力しない）" : "テスト文字だけを入力",
+            Dock = DockStyle.Fill, MaxLength = 120, UseSystemPasswordChar = password
         };
-        textInput.TextChanged += (_, _) => inputPreview.Text = "入力: " + (textInput.Text.Length == 0 ? "(空欄)" : textInput.Text);
+        // パスワード欄の内容は画面にも出さず、文字数だけを表示する。
+        textInput.TextChanged += (_, _) => inputPreview.Text = "入力: " + (textInput.Text.Length == 0 ? "(空欄)"
+            : password ? $"{textInput.Text.Length}文字（非表示）" : textInput.Text);
         layout.Controls.Add(textInput, 0, 3);
         layout.Controls.Add(inputPreview, 0, 4);
         layout.Controls.Add(keyboard, 0, 5);
         Controls.Add(layout);
 
-        KeyDown += (_, args) => keyboard.Text = $"最後のキー: {args.KeyData}  /  押下 {++keyCount} 回";
+        KeyDown += (_, args) => keyboard.Text = password ? $"押下 {++keyCount} 回" : $"最後のキー: {args.KeyData}  /  押下 {++keyCount} 回";
         animationTimer.Tick += (_, _) => motion.Invalidate();
         Shown += (_, _) =>
         {

@@ -30,7 +30,7 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 - Storage: 設定、録画一覧、改名・ごみ箱。
 - Playback: FFmpegによる独立デコード、単調時計、シーク・終了処理。
 - VirtualCamera: UnityCaptureの登録検出と共有メモリ送信、最新フレームの配信ワーカー。
-- UI: 録画・設定・改名・独立プレビュー・複数再生画面と所有資源。
+- UI: 録画・設定・改名・独立プレビュー・複数再生画面と所有資源。操作記録の設定画面の一覧（約1,900行）は`DisplayedRowsDataGridView`で、UI Automation・MSAAへ見出し行・表示中の行・スクロールバーだけを公開する。標準のDataGridViewは全行をセルごとに公開し、支援ツールの探索で約60秒応答しなくなったため。子要素の番号は`GetChild`・`GetChildCount`と行の`Navigate`の両方で詰めた番号にそろえ、最後の表示行の次は返さない（スクロールバーを返すとUI Automationが一覧の先頭へ戻って循環する）。行を非表示にする一覧には使わない。
 
 初版のアイコンは親の採用04共通ICOをこのリポジトリへ複製し、親相対パスを実行時依存にしない。独立ウィンドウはBrandedFormとWindowTitle.Createを使用する。
 ## デスクトップアクセスの事前確認

@@ -17,7 +17,7 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 
 キャプチャスモークは自作の検証窓だけを取得し、WGCの他窓分離・サイズ変更・停止条件を検査する。対話デスクトップへのアクセスが必要。制限環境のAccessDeniedを製品の動作不良と同一視しない。
 
-同じhelperの`--scene`は閉じるまで動く録画試験用窓。実UI検証ではこれを対象に選ぶ。テスト用設定を分離して起動する場合は`start.ps1 -SettingsDirectory <対象版logs内の設定フォルダー> -FfmpegPath <絶対パス>`を使う。
+同じhelperの`--scene`は閉じるまで動く録画試験用窓。実UI検証ではこれを対象に選ぶ。`--password-scene`は入力欄をパスワード欄にした同じ窓で、パスワード入力のキーがTSVと入力テストに出ないことの確認に使う。検証では実際のパスワードを入力しない。テスト用設定を分離して起動する場合は`start.ps1 -SettingsDirectory <対象版logs内の設定フォルダー> -FfmpegPath <絶対パス>`を使う。
 
 実施済みのテスト件数、録画したMP4とTSVの照合、実操作動画の台帳と未検証範囲は[v0.1.2の実装報告](../dev/history/v0.1.2/v0.1.2-imp.md)と[公開後のレビュー修正](../dev/history/v0.1.3/v0.1.3-imp.md)に記録する。操作風景の録画と、CapchunWindow自身が生成した動画は別の証跡として扱う。
 
@@ -25,6 +25,7 @@ dotnet build tests/CapchunScreen.CaptureSmoke/CapchunScreen.CaptureSmoke.csproj
 
 - Capture: モニター/GDI、HWND選択、WGCとD3D11資源管理。
 - Input: 録画時だけ有効なフック、入力蓄積、対象範囲判定。フックはメッセージループだけを回す専用スレッドに置き、UIスレッドの負荷で全体の入力を遅らせない。押下中キーは消費時に`GetAsyncKeyState`と照合し、250ms以上前の押下で実際に離されているものを解放する。`GetLastInputInfo`の最終入力からフックの最終受信までが3秒以上空いたら、Windowsに外されたとみなして再設置し、録画結果の`InputWarning`で利用者へ伝える。
+- Input（パスワード保護）: ShortcutKeyCounterのSecurity Gateと同じ条件（昇格した前面プロセス、パスワード属性のフォーカス要素、前面ウィンドウ内のパスワード属性要素、判定失敗）で保護し、判定できないときは記録しない。UI Automationは`InputProtectionMonitor`の専用スレッドで呼び、キー押下・クリック・フォーカス変更のたびに判定を起こす。キーは観測順の連番で「押した後に始まった判定」と照合し、Tab・Enter・修飾キー付きのキー・クリック・フォーカス変更を区切りとする。区切りまでに判定が始まらなかったキーと1秒以内に判定できないキーは捨てる。録画スレッドはキーごとに最大80ms判定を待ち、通常は押したフレームの行へ記録する。ウィンドウ全体の探索は相手アプリのUIスレッドで全要素をたどって重いため、前面ウィンドウの変化時と5秒ごとに限る。本アプリ自身が前面のときはUI Automationを呼ばない（一覧の多い操作記録の設定画面で、自分のUIスレッドが応答しなくなったため）。`System.Windows.Automation`のためにcsprojで`UseWPF`を有効にしている。WPFの画面は使わず、外れる暗黙の`System.IO`は明示している。
 - Recording: エンコーダ、単調時計、固定寸法・TSV対応、保存確定。H.264用の偶数化で足す1px以内の余白は右・下の黒帯とし、取得画像を再サンプリングしない。
 - Storage: 設定、録画一覧、改名・ごみ箱。
 - Playback: FFmpegによる独立デコード、単調時計、シーク・終了処理。
